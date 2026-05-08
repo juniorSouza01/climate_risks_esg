@@ -1,0 +1,112 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+.eggs/
+.venv/
+venv/
+env/
+.uv/
+uv.lock.local
+
+# --- Type checkers / linters ---
+.mypy_cache/
+.ruff_cache/
+.pytype/
+.pyre/
+
+# --- Tests / coverage ---
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+*.cover
+.hypothesis/
+
+# --- Notebooks ---
+.ipynb_checkpoints/
+*.nbconvert.ipynb
+
+# --- R ---
+.Rproj.user/
+.Rhistory
+.RData
+.Ruserdata
+src/r_analytics/renv/library/
+src/r_analytics/renv/local/
+src/r_analytics/renv/cellar/
+src/r_analytics/renv/lock/
+src/r_analytics/renv/python/
+src/r_analytics/renv/staging/
+
+# --- Frontend ---
+src/frontend/node_modules/
+src/frontend/dist/
+src/frontend/.vite/
+src/frontend/coverage/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# --- Data lake (NUNCA versionar dados brutos) ---
+data/bronze/**
+!data/bronze/.gitkeep
+data/silver/**
+!data/silver/.gitkeep
+data/gold/**
+!data/gold/.gitkeep
+*.nc
+*.zarr/
+*.parquet
+*.h5
+*.hdf5
+*.pkl
+*.joblib
+
+# --- Segredos / credenciais ---
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.crt
+secrets/
+.aws/
+.gcp/
+service-account*.json
+credentials.json
+
+# --- Prefect ---
+.prefect/
+prefect.db
+
+# --- MLflow ---
+mlruns/
+mlartifacts/
+
+# --- DB ---
+*.sqlite
+*.sqlite3
+*.db
+
+# --- IDE / OS ---
+.idea/
+.vscode/
+!.vscode/settings.shared.json
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# --- Logs / temp ---
+*.log
+logs/
+tmp/
+.cache/

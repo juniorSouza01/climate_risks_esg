@@ -1,0 +1,152 @@
+[project]
+name = "climate-esg-platform"
+version = "0.0.1"
+description = "Plataforma de Análise de Riscos Climáticos para ESG — proprietária"
+authors = [{ name = "Osney Andrade de Souza Junior", email = "osney.souza@martinelliaud.com.br" }]
+requires-python = ">=3.11,<3.13"
+license = { text = "Proprietary — All Rights Reserved" }
+readme = "README.md"
+
+dependencies = [
+    # Ingestão / HTTP
+    "httpx>=0.27",
+    "tenacity>=9.0",
+    "typer>=0.12",
+    "rich>=13.7",
+    # Dados climáticos / geoespaciais
+    "xarray>=2024.10",
+    "netCDF4>=1.7",
+    "dask[complete]>=2024.10",
+    "zarr>=2.18",
+    "rioxarray>=0.17",
+    "cf-xarray>=0.10",
+    "intake-esm>=2024.2",
+    "geopandas>=1.0",
+    "shapely>=2.0",
+    "rasterio>=1.4",
+    "pyproj>=3.7",
+    "xclim>=0.53",
+    # Tabular / ML (placeholders MVP — uso real só na F1+)
+    "polars>=1.12",
+    "pandas>=2.2",
+    "scikit-learn>=1.5",
+    "shap>=0.46",
+    # Validação de dado
+    "pandera>=0.20",
+    "great-expectations>=1.2",
+    # API
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
+    "pydantic>=2.9",
+    "pydantic-settings>=2.6",
+    # DB
+    "sqlalchemy>=2.0",
+    "alembic>=1.13",
+    "psycopg[binary,pool]>=3.2",
+    "geoalchemy2>=0.15",
+    "pgvector>=0.3",
+    # Orquestração
+    "prefect>=3.1",
+    # MLOps / tracking
+    "mlflow>=2.17",
+    # Utilidades
+    "python-dotenv>=1.0",
+    "structlog>=24.4",
+]
+
+[project.optional-dependencies]
+dev = [
+    "ruff>=0.7",
+    "mypy>=1.13",
+    "pytest>=8.3",
+    "pytest-cov>=6.0",
+    "pytest-asyncio>=0.24",
+    "pre-commit>=4.0",
+    "types-requests",
+]
+nlp = [
+    "transformers>=4.46",
+    "sentence-transformers>=3.2",
+    "torch>=2.5",
+    "langchain>=0.3",
+    "llama-index>=0.12",
+]
+
+[project.scripts]
+climate-esg = "climate_esg.cli.main:app"
+
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/climate_esg"]
+
+[tool.uv]
+package = true
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["src", "tests", "pipelines"]
+extend-exclude = ["data", "docs/source", "src/r_analytics", "src/frontend"]
+
+[tool.ruff.lint]
+select = [
+    "E", "W",   # pycodestyle
+    "F",        # pyflakes
+    "I",        # isort
+    "UP",       # pyupgrade
+    "B",        # bugbear
+    "SIM",      # simplify
+    "RUF",      # ruff-specific
+    "ANN",      # annotations (light)
+    "TID",      # tidy imports
+]
+ignore = [
+    "ANN401",   # allow Any in seldom places
+    "E501",     # let formatter handle line length
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["ANN", "B", "SIM"]
+"pipelines/**" = ["ANN"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+files = ["src/climate_esg"]
+exclude = ["src/r_analytics", "src/frontend", "data", "docs"]
+
+[[tool.mypy.overrides]]
+module = [
+    "xarray.*", "rioxarray.*", "cf_xarray.*", "intake_esm.*",
+    "geopandas.*", "shapely.*", "rasterio.*", "pyproj.*", "xclim.*",
+    "shap.*", "great_expectations.*", "geoalchemy2.*", "pgvector.*",
+    "mlflow.*", "prefect.*",
+]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+addopts = "-ra --strict-markers --strict-config"
+markers = [
+    "slow: testes lentos (rede, IO pesado)",
+    "integration: requer Postgres/MinIO/etc subindo",
+    "needs_data: requer NetCDF baixado em data/bronze",
+]
+
+[tool.coverage.run]
+source = ["src/climate_esg"]
+branch = true
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "raise NotImplementedError",
+    "if TYPE_CHECKING:",
+    "\\.\\.\\.",
+]

@@ -1,0 +1,27 @@
+# Prefect 3 deployments declarativos.
+# Aplicar com: `uv run prefect deploy --all`
+
+prefect-version: 3.1.0
+
+name: climate-esg-platform
+
+# Pull configurado para a raiz do repo. Ajustar quando o Prefect Cloud entrar.
+pull:
+  - prefect.deployments.steps.set_working_directory:
+      directory: .
+
+deployments:
+  - name: ingest-cmip6-historical
+    description: |
+      Ingestão CMIP6 EC-Earth3 historical para todos os wget scripts em
+      data/manifests/cmip6_wget/. Roda em modo fetch-only no F0; validate
+      e promote viram-se no F1.
+    entrypoint: pipelines/flows/ingest_cmip6.py:ingest_cmip6_flow
+    parameters:
+      wget_script: data/manifests/cmip6_wget/wget_script_2026-5-7_13-52-45.sh
+      do_validate: false
+      do_promote: false
+    work_pool:
+      name: default
+      work_queue_name: default
+    schedules: []   # disparo manual no F0
