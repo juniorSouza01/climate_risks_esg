@@ -15,7 +15,7 @@ from climate_esg.db.models import (
     DimScenario,
     FactClimateIndicator,
 )
-from climate_esg.geospatial.regions import SANTA_CATARINA, BBox
+from climate_esg.geospatial.regions import SANTA_CATARINA, BBox, bbox_from_points
 from climate_esg.governance.lineage import hash_data_version, start_model_run
 from climate_esg.ingestion.cf_validation import check_value_range
 from climate_esg.ingestion.esgf_client import (
@@ -145,6 +145,17 @@ def _crop_bbox(ds: xr.Dataset, bbox: BBox) -> xr.Dataset:
     return ds.sel({lat_name: lat_slice, lon_name: slice(bbox.lon_min, bbox.lon_max)})
 
 
+def _portfolio_bbox(margin_deg: float = 2.0) -> BBox:
+    with session_scope() as session:
+        rows = session.execute(
+            sa.select(DimAsset.latitude, DimAsset.longitude).where(
+                DimAsset.latitude.is_not(None), DimAsset.longitude.is_not(None)
+            )
+        ).all()
+    points = [(float(lat), float(lon)) for lat, lon in rows]
+    return bbox_from_points(points, margin_deg=margin_deg) if points else SANTA_CATARINA
+
+
 @task
 def promote_to_silver(paths: list[Path]) -> list[dict[str, str]]:
     """Agrupa por dataset CMIP6, concatena no tempo, recorta SC e grava Zarr.
@@ -175,13 +186,16 @@ def promote_to_silver(paths: list[Path]) -> list[dict[str, str]]:
         groups.setdefault(key, []).append(p)
         idents[key] = ident
 
+    bbox = _portfolio_bbox()
+    logger.info("promote: bbox derivado dos ativos = %s", bbox)
+
     promoted: list[dict[str, str]] = []
     for key, group_paths in groups.items():
         ident = idents[key]
         ds = open_mfnetcdf(group_paths)
         try:
             ds = _normalize_longitudes(ds)
-            ds = _crop_bbox(ds, SANTA_CATARINA)
+            ds = _crop_bbox(ds, bbox)
             store = cmip6_silver_path(
                 source=ident.source,
                 experiment=ident.experiment,
