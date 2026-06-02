@@ -23,8 +23,71 @@ manifests_app = typer.Typer(help="Inspeção de manifests ESGF.")
 app.add_typer(manifests_app, name="manifests")
 db_app = typer.Typer(help="Operações de banco (seed, etc.).")
 app.add_typer(db_app, name="db")
+geo_app = typer.Typer(help="Geocodificação de ativos (BrasilAPI + Nominatim).")
+app.add_typer(geo_app, name="geo")
 
 console = Console()
+
+
+@geo_app.command("locate", help="Geocodifica uma consulta livre via Nominatim/OSM.")
+def geo_locate(
+    query: str = typer.Argument(..., help="Ex.: 'Joinville, SC, Brasil'"),
+) -> None:
+    configure_logging()
+    from climate_esg.ingestion.geocoding import geocode
+
+    result = geocode(query)
+    if result is None:
+        console.print("[yellow]Sem resultado.[/yellow]")
+        raise typer.Exit(1)
+    console.print(f"{result.latitude}, {result.longitude} — {result.display_name}")
+
+
+@geo_app.command("cnpj", help="Geocodifica uma empresa pelo CNPJ (BrasilAPI → Nominatim).")
+def geo_cnpj(cnpj: str = typer.Argument(..., help="CNPJ com ou sem máscara")) -> None:
+    configure_logging()
+    from climate_esg.ingestion.geocoding import geocode_cnpj
+
+    result = geocode_cnpj(cnpj)
+    if result is None:
+        console.print("[yellow]CNPJ não encontrado ou sem geocodificação.[/yellow]")
+        raise typer.Exit(1)
+    console.print(f"{result.latitude}, {result.longitude} — {result.display_name}")
+
+
+@geo_app.command("refresh-assets", help="Atualiza lat/long/geom dos ativos via município.")
+def geo_refresh_assets() -> None:
+    configure_logging()
+    import sqlalchemy as sa
+    from geoalchemy2.elements import WKTElement
+
+    from climate_esg.db.base import session_scope
+    from climate_esg.db.models import DimAsset
+    from climate_esg.ingestion.geocoding import build_address_query, geocode
+
+    updated = 0
+    with session_scope() as session:
+        rows = session.execute(
+            sa.select(DimAsset.asset_sk, DimAsset.name, DimAsset.municipality, DimAsset.state)
+        ).all()
+        for asset_sk, name, municipality, state in rows:
+            if not municipality:
+                continue
+            result = geocode(build_address_query(municipality=municipality, state=state))
+            if result is None:
+                continue
+            session.execute(
+                sa.update(DimAsset)
+                .where(DimAsset.asset_sk == asset_sk)
+                .values(
+                    latitude=result.latitude,
+                    longitude=result.longitude,
+                    geom=WKTElement(f"POINT({result.longitude} {result.latitude})", srid=4326),
+                )
+            )
+            updated += 1
+            console.print(f"[green]{name}[/green] → {result.latitude:.4f}, {result.longitude:.4f}")
+    console.print(f"[bold]{updated} ativos atualizados.[/bold]")
 
 
 @db_app.command("seed")
