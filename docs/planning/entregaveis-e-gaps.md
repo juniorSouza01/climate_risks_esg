@@ -53,10 +53,11 @@
 **Pronto:** parser wget + download async com checksum/retry/idempotência ([`esgf_client.py`](../../src/climate_esg/ingestion/esgf_client.py)) — **testado contra 10 scripts reais (450 arquivos)**; task `fetch_manifest` do flow Prefect.
 
 **Falta:**
-- [ ] Implementar `validate_netcdf` (abrir com xarray + cf-xarray, checar variável/unidade/dims CF, ranges físicos). Hoje `NotImplementedError`.
-- [ ] Implementar `promote_to_silver` (regrid p/ grade comum, recorte espacial SC/Brasil, escrita **Zarr** com Zstd). Hoje `NotImplementedError`.
+- [x] Implementar `validate_netcdf` (xarray + faixa física via `cf_validation`). ✏️ escrito — validar com dado real.
+- [x] Implementar `promote_to_silver` (normaliza lon, recorta SC, escreve **Zarr**). ✏️ escrito. ⚠️ regrid p/ grade comum (xesmf) adiado p/ F1; F0 usa grade nativa recortada.
+- [x] Materializar `fact_climate_indicator` (série mensal no ponto do ativo) + **linhagem `run_sk`** (`governance/lineage.py`). ✏️ escrito.
 - [ ] `intake-esm`: gerar catálogo da prata; modelos consomem por catálogo, não por path.
-- [ ] **Baixar 1 NetCDF `tasmin` historical** para o smoke test (fecha F0).
+- [ ] **Baixar 1 NetCDF `tasmin` historical** para o smoke test (fecha F0). *(precisa rede)*
 - [ ] **(F1)** Nova requisição MetaGrid: `pr`, `tasmax`, `sfcWindmax` × `historical+ssp245+ssp585`, prefixo `v2_` (ADR-0005).
 - [ ] **(F1)** Ingestão em lote da v2 + deployment/schedule Prefect.
 

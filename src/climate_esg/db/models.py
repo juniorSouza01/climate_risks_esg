@@ -23,6 +23,7 @@ from sqlalchemy import (
     Date,
     DateTime,
     ForeignKey,
+    Identity,
     Index,
     Integer,
     Numeric,
@@ -162,7 +163,7 @@ class DimModelRun(Base):
 
     __tablename__ = "dim_model_run"
 
-    run_sk: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    run_sk: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
     model_name: Mapped[str] = mapped_column(String(120), index=True)
     model_version: Mapped[str] = mapped_column(String(40))
     code_commit: Mapped[str | None] = mapped_column(String(40), index=True)
@@ -184,7 +185,7 @@ class FactClimateIndicator(Base):
 
     __tablename__ = "fact_climate_indicator"
 
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
     asset_sk: Mapped[int] = mapped_column(
         BigInteger, ForeignKey("dim_asset.asset_sk"), index=True
     )
@@ -208,7 +209,7 @@ class FactPhysicalRiskScore(Base):
 
     __tablename__ = "fact_physical_risk_score"
 
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
     company_sk: Mapped[int] = mapped_column(
         BigInteger, ForeignKey("dim_company.company_sk"), index=True
     )
@@ -232,7 +233,7 @@ class FactTransitionRiskScore(Base):
 
     __tablename__ = "fact_transition_risk_score"
 
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
     company_sk: Mapped[int] = mapped_column(
         BigInteger, ForeignKey("dim_company.company_sk"), index=True
     )

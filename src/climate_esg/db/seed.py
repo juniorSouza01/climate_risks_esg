@@ -36,8 +36,10 @@ from climate_esg.logging import get_logger
 
 log = get_logger(__name__)
 
-DATE_START = dt.date(1988, 1, 1)
-DATE_END = dt.date(2050, 12, 31)
+# CMIP6 historical começa em 1850; cenários SSP vão até 2100. Cobrimos a janela
+# inteira para não descartar dados de baseline históricos na materialização.
+DATE_START = dt.date(1850, 1, 1)
+DATE_END = dt.date(2100, 12, 31)
 
 
 # ---------------------------------------------------------------------------
@@ -75,6 +77,9 @@ SCENARIOS: list[dict[str, object]] = [
 ]
 
 # (var_sk, cf_code, unidade, descrição). EC-Earth3 como fonte (ADR-0005).
+# 1-6: prioritárias p/ hazards de SC. 7-9: presentes nos manifests atuais
+# (historical já baixado) — incluídas para o smoke test E2E funcionar com
+# qualquer um dos 10 wget scripts.
 CLIMATE_VARIABLES: list[tuple[int, str, str, str]] = [
     (1, "tasmin", "K", "Temperatura mínima do ar a 2m."),
     (2, "tasmax", "K", "Temperatura máxima (calor extremo)."),
@@ -82,6 +87,9 @@ CLIMATE_VARIABLES: list[tuple[int, str, str, str]] = [
     (4, "sfcWindmax", "m s-1", "Vento máximo (vento extremo)."),
     (5, "hurs", "%", "Umidade relativa à superfície."),
     (6, "huss", "1", "Umidade específica à superfície."),
+    (7, "rsdt", "W m-2", "Radiação solar incidente no topo da atmosfera."),
+    (8, "prsn", "kg m-2 s-1", "Precipitação de neve (baixa relevância em SC)."),
+    (9, "hus", "1", "Umidade específica (níveis de pressão)."),
 ]
 
 # ADR-0004: Döhler (capital fechado) e Schulz (B3 SHUL3/SHUL4). LEI/CNPJ a

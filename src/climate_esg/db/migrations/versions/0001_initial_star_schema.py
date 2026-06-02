@@ -24,9 +24,10 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
-    # PostGIS é pré-requisito das colunas Geometry. init_db.sh já cria, mas
-    # repetimos de forma idempotente para a stack de CI funcionar sozinha.
-    op.execute("CREATE EXTENSION IF NOT EXISTS postgis")
+    # PRÉ-REQUISITO: a extensão PostGIS já deve existir no banco. Ela é criada
+    # por infra/local/init_db.sh (como superusuário `postgres`) — NÃO aqui, pois
+    # a migration roda como o role da aplicação, que não é superusuário e não
+    # pode `CREATE EXTENSION`. No CI a extensão é habilitada num passo dedicado.
 
     # ---- dim_company -----------------------------------------------------
     op.create_table(
@@ -151,7 +152,7 @@ def upgrade() -> None:
     # ---- dim_model_run ---------------------------------------------------
     op.create_table(
         "dim_model_run",
-        sa.Column("run_sk", sa.BigInteger(), nullable=False),
+        sa.Column("run_sk", sa.BigInteger(), sa.Identity(), nullable=False),
         sa.Column("model_name", sa.String(length=120), nullable=False),
         sa.Column("model_version", sa.String(length=40), nullable=False),
         sa.Column("code_commit", sa.String(length=40), nullable=True),
@@ -172,7 +173,7 @@ def upgrade() -> None:
     # ---- fact_climate_indicator -----------------------------------------
     op.create_table(
         "fact_climate_indicator",
-        sa.Column("id", sa.BigInteger(), nullable=False),
+        sa.Column("id", sa.BigInteger(), sa.Identity(), nullable=False),
         sa.Column("asset_sk", sa.BigInteger(), nullable=False),
         sa.Column("var_sk", sa.Integer(), nullable=False),
         sa.Column("scenario_sk", sa.Integer(), nullable=False),
@@ -208,7 +209,7 @@ def upgrade() -> None:
     # ---- fact_physical_risk_score ---------------------------------------
     op.create_table(
         "fact_physical_risk_score",
-        sa.Column("id", sa.BigInteger(), nullable=False),
+        sa.Column("id", sa.BigInteger(), sa.Identity(), nullable=False),
         sa.Column("company_sk", sa.BigInteger(), nullable=False),
         sa.Column("scenario_sk", sa.Integer(), nullable=False),
         sa.Column("horizon_year", sa.Integer(), nullable=False),
@@ -243,7 +244,7 @@ def upgrade() -> None:
     # ---- fact_transition_risk_score -------------------------------------
     op.create_table(
         "fact_transition_risk_score",
-        sa.Column("id", sa.BigInteger(), nullable=False),
+        sa.Column("id", sa.BigInteger(), sa.Identity(), nullable=False),
         sa.Column("company_sk", sa.BigInteger(), nullable=False),
         sa.Column("scenario_sk", sa.Integer(), nullable=False),
         sa.Column("horizon_year", sa.Integer(), nullable=False),

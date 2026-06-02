@@ -19,7 +19,7 @@ O projeto está na **Fase F0 — Fundação**. O *scaffolding* do monorepo está
 | Parser/ingestão ESGF | ✅ Implementado e testado |
 | Contrato de score (`ScoreBand`) | ✅ Implementado e testado |
 | ORM do star schema | ✅ Modelado + migration inicial escrita |
-| Pipeline bronze→prata→ouro | 🟡 Só `fetch`; `validate`/`promote` são stubs |
+| Pipeline bronze→prata→ouro | 🟡 `fetch` ✅; `validate`/`promote`/`materialize` + linhagem escritos (não validados contra dado real) |
 | Ambiente local (uv, venv, deps) | ❌ Não provisionado |
 | Banco materializado (Alembic) | 🟡 Migration `0001` + `seed.py` escritos; **não validados** contra banco vivo (falta venv/sudo) |
 | CI | 🟡 `ci.yml` + `.pre-commit-config.yaml` escritos; ainda não rodaram |

@@ -58,6 +58,31 @@ def cmip6_bronze_path(
     )
 
 
+def cmip6_silver_path(
+    *,
+    source: str,
+    experiment: str,
+    member: str,
+    table: str,
+    variable: str,
+    grid: str,
+) -> Path:
+    """Store Zarr da camada prata para um dataset CMIP6 (já regridded/recortado).
+
+    Ex.: data/silver/cmip6/EC-Earth3/historical/r120i1p1f1/Amon/tasmin/gr.zarr
+    """
+    return (
+        layer_root(Layer.SILVER)
+        / "cmip6"
+        / source
+        / experiment
+        / member
+        / table
+        / variable
+        / f"{grid}.zarr"
+    )
+
+
 def ensure_dir(path: Path) -> Path:
     """mkdir -p; retorna o próprio path para uso em chains."""
     path.mkdir(parents=True, exist_ok=True)
