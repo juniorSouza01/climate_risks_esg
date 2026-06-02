@@ -48,10 +48,14 @@ cp .env.example .env
 # 5. Instalar Postgres+PostGIS+pgvector nativos
 make setup-system
 
-# 6. Inicializar database
+# 6. Inicializar database (role, db, extensões)
 make db-init
 
-# 7. Verificar saúde
+# 7. Aplicar schema e popular dimensões-base
+make db-migrate   # cria as tabelas do star schema (Alembic)
+make db-seed      # cenários, variáveis CF, Döhler/Schulz, ativos, calendário
+
+# 8. Verificar saúde
 make check        # lint + typecheck + tests
 ```
 

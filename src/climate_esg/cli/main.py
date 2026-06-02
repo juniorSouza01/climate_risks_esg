@@ -21,8 +21,20 @@ from climate_esg.logging import configure_logging
 app = typer.Typer(no_args_is_help=True, add_completion=False)
 manifests_app = typer.Typer(help="Inspeção de manifests ESGF.")
 app.add_typer(manifests_app, name="manifests")
+db_app = typer.Typer(help="Operações de banco (seed, etc.).")
+app.add_typer(db_app, name="db")
 
 console = Console()
+
+
+@db_app.command("seed")
+def db_seed() -> None:
+    """Popula as dimensões-base do MVP (idempotente)."""
+    configure_logging()
+    from climate_esg.db.seed import run
+
+    run()
+    console.print("[bold green]Seed concluído.[/bold green]")
 
 
 @manifests_app.command("inspect")

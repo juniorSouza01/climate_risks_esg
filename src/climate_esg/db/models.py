@@ -23,6 +23,7 @@ from sqlalchemy import (
     Date,
     DateTime,
     ForeignKey,
+    Index,
     Integer,
     Numeric,
     String,
@@ -67,6 +68,11 @@ class DimAsset(Base):
     """Ativos físicos georreferenciados."""
 
     __tablename__ = "dim_asset"
+    # Índice espacial declarado explicitamente (spatial_index=False na coluna) para
+    # manter metadata e migration Alembic em sincronia. Ver ADR-0002 §Consequências.
+    __table_args__ = (
+        Index("idx_dim_asset_geom", "geom", postgresql_using="gist"),
+    )
 
     asset_sk: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     company_sk: Mapped[int] = mapped_column(
@@ -76,7 +82,9 @@ class DimAsset(Base):
     name: Mapped[str | None] = mapped_column(String(255))
     latitude: Mapped[float | None] = mapped_column(Numeric(9, 6))
     longitude: Mapped[float | None] = mapped_column(Numeric(9, 6))
-    geom = mapped_column(Geometry(geometry_type="POINT", srid=4326), nullable=True)
+    geom = mapped_column(
+        Geometry(geometry_type="POINT", srid=4326, spatial_index=False), nullable=True
+    )
     municipality: Mapped[str | None] = mapped_column(String(120))
     state: Mapped[str | None] = mapped_column(String(2))
     capacity: Mapped[float | None] = mapped_column(Numeric)
@@ -91,12 +99,17 @@ class DimRegion(Base):
     """Regiões administrativas e geometrias agregadas."""
 
     __tablename__ = "dim_region"
+    __table_args__ = (
+        Index("idx_dim_region_geom", "geom", postgresql_using="gist"),
+    )
 
     region_sk: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     iso_country: Mapped[str] = mapped_column(String(2), index=True)
     admin1: Mapped[str | None] = mapped_column(String(60))  # estado/UF
     admin2: Mapped[str | None] = mapped_column(String(120))  # município
-    geom = mapped_column(Geometry(geometry_type="MULTIPOLYGON", srid=4326), nullable=True)
+    geom = mapped_column(
+        Geometry(geometry_type="MULTIPOLYGON", srid=4326, spatial_index=False), nullable=True
+    )
     hierarchy_path: Mapped[str | None] = mapped_column(Text)
     population: Mapped[int | None] = mapped_column(BigInteger)
     gdp: Mapped[float | None] = mapped_column(Numeric)

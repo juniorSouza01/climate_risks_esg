@@ -1,0 +1,143 @@
+Work Item Type,Title,Description,Tags,Iteration Path,Priority
+Epic,Fundação Ambiente e Banco,"Provisionar ambiente local, materializar banco e seed inicial (F0).",F0;Fundacao,Climate ESG\Sprint 1,1
+Feature,Provisionar ambiente local,"uv, venv, deps e Postgres com extensões.",F0;Fundacao,Climate ESG\Sprint 1,1
+User Story,Ambiente Python provisionado,"Como dev quero o ambiente Python para rodar o código.",F0;Fundacao,Climate ESG\Sprint 1,1
+Task,Instalar uv e criar venv,"Instalar uv; uv sync --extra dev; commitar uv.lock.",F0,Climate ESG\Sprint 1,1
+Task,Validar make check verde,"ruff + mypy + pytest verdes localmente.",F0,Climate ESG\Sprint 1,1
+Task,Criar .env,"Copiar de .env.example e preencher credenciais locais.",F0,Climate ESG\Sprint 1,2
+User Story,Postgres inicializado com extensões,"Como dev quero Postgres com postgis/vector/pg_trgm.",F0;Fundacao,Climate ESG\Sprint 1,1
+Task,Rodar setup_postgres.sh,"apt: postgres-16, postgis, pgvector.",F0,Climate ESG\Sprint 1,1
+Task,Rodar init_db.sh,"Role climate_esg, db e extensões.",F0,Climate ESG\Sprint 1,1
+Task,Smoke de conexão,"make db-shell conecta; \\dx lista extensões.",F0,Climate ESG\Sprint 1,2
+Feature,Migrations Alembic,"Materializar o star schema via migrations versionadas.",F0;Fundacao,Climate ESG\Sprint 1,1
+User Story,Star schema materializado,"Como dev quero migrations versionadas do schema.",F0;Fundacao,Climate ESG\Sprint 1,1
+Task,Criar alembic.ini e env.py,"env.py apontando para Base.metadata.",F0,Climate ESG\Sprint 1,1
+Task,Migration inicial autogenerate,"Dimensões + 3 fatos atuais.",F0,Climate ESG\Sprint 1,1
+Task,Índices GIST geom,"Índices GIST em dim_asset.geom e dim_region.geom.",F0,Climate ESG\Sprint 1,2
+Task,Aplicar make db-migrate,"Aplica sem erro; validar tabelas no banco.",F0,Climate ESG\Sprint 1,1
+Feature,Seed de dimensões,"Popular dimensões-base para o pipeline ter chaves.",F0;Fundacao,Climate ESG\Sprint 1,1
+User Story,Dimensões-base populadas,"Como modelador quero dimensões base populadas.",F0;Fundacao,Climate ESG\Sprint 1,1
+Task,Seed dim_scenario,"historical, SSP2-4.5, SSP5-8.5.",F0,Climate ESG\Sprint 1,1
+Task,Seed dim_climate_variable,"CF: tasmin, tasmax, pr, sfcWindmax, hurs, huss.",F0,Climate ESG\Sprint 1,1
+Task,Seed dim_company,"Döhler (fechado) e Schulz (B3 SHUL3/SHUL4).",F0,Climate ESG\Sprint 1,1
+Task,Seed dim_asset,"Plantas em Joinville/SC com lat/long (POINT).",F0,Climate ESG\Sprint 1,1
+Task,Seed dim_date,"Calendário 1988-2050 BR fiscal-aware.",F0,Climate ESG\Sprint 1,2
+Task,CLI db seed idempotente,"climate-esg db seed.",F0,Climate ESG\Sprint 1,2
+Epic,CI/CD e Qualidade,"CI verde e hooks de pré-commit (F0).",F0;CI,Climate ESG\Sprint 1,1
+Feature,CI no GitHub Actions,"Lint, tipos e testes a cada push.",F0;CI,Climate ESG\Sprint 1,1
+User Story,CI verde a cada push,"Como dev quero CI verde a cada push.",F0;CI,Climate ESG\Sprint 1,1
+Task,Workflow ci.yml,"ruff + mypy + pytest.",F0,Climate ESG\Sprint 1,1
+Task,Postgres service container,"Para testes integration na CI.",F0,Climate ESG\Sprint 1,2
+Task,Gate de cobertura,"Falhar abaixo do mínimo definido.",F0,Climate ESG\Sprint 1,3
+User Story,Pré-commit hooks,"Como dev quero hooks de pré-commit.",F0;CI,Climate ESG\Sprint 1,2
+Task,Config pre-commit,".pre-commit-config.yaml (ruff/mypy leve).",F0,Climate ESG\Sprint 1,2
+Epic,Ingestão e Pipeline CMIP6 E2E,"Completar pipeline bronze→prata→ouro e expandir variáveis (F0→F1).",F0;F1;Ingestao,Climate ESG\Sprint 2,1
+Feature,Completar flow ingest_cmip6,"Implementar validate e promote e fechar smoke E2E.",F0;Ingestao,Climate ESG\Sprint 2,1
+User Story,Validar NetCDF baixado,"Como pipeline quero validar o NetCDF (CF + ranges).",F0;Ingestao,Climate ESG\Sprint 2,1
+Task,Implementar validate_netcdf,"xarray + cf-xarray; variável/unidade/dims; ranges físicos.",F0,Climate ESG\Sprint 2,1
+Task,Teste needs_data tasmin,"Teste com 1 arquivo tasmin.",F0,Climate ESG\Sprint 2,2
+User Story,Promover bronze para prata em Zarr,"Como pipeline quero promover para Zarr regridded.",F0;Ingestao,Climate ESG\Sprint 2,1
+Task,Implementar promote_to_silver,"Regrid + recorte SC + Zarr (Zstd).",F0,Climate ESG\Sprint 2,1
+Task,Catálogo intake-esm,"Gerar catálogo da prata.",F1,Climate ESG\Sprint 2,2
+User Story,Smoke test E2E fecha F0,"Como dev quero o E2E bronze→ouro (critério de saída F0).",F0;Ingestao,Climate ESG\Sprint 2,1
+Task,Baixar 1 NetCDF tasmin,"historical para data/bronze.",F0,Climate ESG\Sprint 2,1
+Task,Rodar flow E2E,"do_validate + do_promote → Zarr na prata.",F0,Climate ESG\Sprint 2,1
+Task,Materializar fact_climate_indicator,"≥1 indicador com run_sk. Critério de saída F0.",F0,Climate ESG\Sprint 2,1
+Feature,Expansão de variáveis v2,"pr, tasmax, sfcWindmax × historical+ssp245+ssp585 (ADR-0005).",F1;Ingestao,Climate ESG\Sprint 3,1
+User Story,Obter variáveis de hazard de SC,"Como modelador quero pr/tasmax/sfcWindmax e SSPs.",F1;Ingestao,Climate ESG\Sprint 3,1
+Task,Gerar requisição MetaGrid v2,"EC-Earth3, 3 variáveis × 3 experimentos.",F1,Climate ESG\Sprint 3,1
+Task,Arquivar scripts v2,"Prefixo v2_ em data/manifests/cmip6_wget.",F1,Climate ESG\Sprint 3,2
+User Story,Ingerir v2 em lote,"Como pipeline quero ingerir a v2 em lote.",F1;Ingestao,Climate ESG\Sprint 3,1
+Task,Deployment Prefect,"prefect.yaml com schedule.",F1,Climate ESG\Sprint 3,2
+Task,Rodar ingestão v2,"fetch+validate+promote para todas as variáveis.",F1,Climate ESG\Sprint 3,1
+Epic,Geoespacial e Exposição,"Operações raster, regridding e exposição ativo×hazard (F1).",F1;Geoespacial,Climate ESG\Sprint 3,1
+Feature,Operações raster e regridding,"Reutilizáveis para recorte e downscaling.",F1;Geoespacial,Climate ESG\Sprint 3,2
+User Story,Operações raster reutilizáveis,"Como modelador quero raster_ops e regridding.",F1;Geoespacial,Climate ESG\Sprint 3,2
+Task,Implementar raster_ops.py,"Reamostragem, recorte, CRS.",F1,Climate ESG\Sprint 3,2
+Task,Implementar regridding.py,"Downscaling CMIP6→grade local; validar vs INMET/ERA5.",F1,Climate ESG\Sprint 4,2
+Feature,Exposição ativo x hazard,"Overlay raster hazard × ativos.",F1;Geoespacial,Climate ESG\Sprint 4,1
+User Story,Exposição por planta,"Como analista quero a exposição por planta.",F1;Geoespacial,Climate ESG\Sprint 4,1
+Task,Carregar malha IBGE,"Joinville/SC em dim_region.",F1,Climate ESG\Sprint 4,2
+Task,Implementar exposure.py,"ST_Intersects/buffer raster × dim_asset.",F1,Climate ESG\Sprint 4,1
+Task,Modelar fact_hazard_exposure,"Migration nova + popular.",F1,Climate ESG\Sprint 4,1
+Epic,Modelagem de Risco Físico,"Índices xclim e score físico com banda (F1).",F1;RiscoFisico,Climate ESG\Sprint 4,1
+Feature,Índices climáticos xclim,"Rx5day, R99pTOT, TX90p, WSDI, dias>32C.",F1;RiscoFisico,Climate ESG\Sprint 4,1
+User Story,Índices climáticos por ativo,"Como modelador quero índices por ativo.",F1;RiscoFisico,Climate ESG\Sprint 4,1
+Task,Implementar climate_indices.py,"Índices xclim sobre Zarr.",F1,Climate ESG\Sprint 4,1
+Task,Materializar fact_climate_indicator,"asset × var × cenário × tempo.",F1,Climate ESG\Sprint 4,1
+Task,Validar índices,"Erro < 1% vs publicados.",F1,Climate ESG\Sprint 5,2
+Feature,Score físico,"Soma ponderada normalizada com banda.",F1;RiscoFisico,Climate ESG\Sprint 5,1
+User Story,Score físico com banda,"Como analista quero o score físico com banda.",F1;RiscoFisico,Climate ESG\Sprint 5,1
+Task,Pesos por hazard em config,"Enchente/deslizamento/vento/calor.",F1,Climate ESG\Sprint 5,1
+Task,Implementar physical_risk.py,"Soma ponderada → ScoreBand.",F1,Climate ESG\Sprint 5,1
+Task,Persistir fact_physical_risk_score,"company × cenário × horizonte × run_sk.",F1,Climate ESG\Sprint 5,1
+Task,Validar coerência 2017,"Enchente 2017 Joinville ↑ score.",F1,Climate ESG\Sprint 5,2
+Epic,Ingestão Financeira ESG e NLP,"Coletores públicos e extração NLP (F2).",F2;Transicao;NLP,Climate ESG\Sprint 6,1
+Feature,Coletores financeiros e ESG,"CVM, B3, CDP, GHG e identidade LEI/CNPJ.",F2;Transicao,Climate ESG\Sprint 6,1
+User Story,Coletar dados públicos das empresas,"Como pipeline quero coletar dados públicos.",F2;Transicao,Climate ESG\Sprint 6,1
+Task,Implementar filings_parser.py,"CVM (Schulz); GHG/CDP/voluntários (Döhler).",F2,Climate ESG\Sprint 6,1
+Task,Implementar market_data.py,"B3 SHUL3/SHUL4, Yahoo.",F2,Climate ESG\Sprint 6,2
+Task,Resolução LEI/CNPJ,"GLEIF/OpenCorporates → dim_company.",F2,Climate ESG\Sprint 6,2
+User Story,Sinal de notícias ESG,"Como pipeline quero sinal de notícias (opcional MVP).",F2;NLP,Climate ESG\Sprint 6,3
+Task,Implementar news_collector.py,"GDELT/RSS → fact_news_signal.",F2,Climate ESG\Sprint 6,3
+Feature,Extração NLP validada,"SLM com saída JSON validada.",F2;NLP,Climate ESG\Sprint 6,1
+User Story,Extrair metas e emissões,"Como modelador quero extrair metas/emissões.",F2;NLP,Climate ESG\Sprint 6,1
+Task,Implementar extractors.py,"SLM (Phi-3/Llama-3.2-3B) → JSON validado.",F2,Climate ESG\Sprint 6,1
+Task,Avaliar F1>0.85,"Campos escopo 1/2/3, ano-alvo, % redução.",F2,Climate ESG\Sprint 7,2
+Epic,Transição e Score Composto,"Soma ponderada de transição, composição e impacto financeiro (F2).",F2;Transicao,Climate ESG\Sprint 7,1
+Feature,Score de transição soma ponderada,"ADR-0004: weighted_sum, não XGBoost.",F2;Transicao,Climate ESG\Sprint 7,1
+User Story,Score de transição com banda,"Como analista quero o score de transição com banda.",F2;Transicao,Climate ESG\Sprint 7,1
+Task,Pesos calibrados em config,"NGFS/TCFD.",F2,Climate ESG\Sprint 7,1
+Task,Implementar transition_risk.py,"Sub-scores política/tecnológico/mercado.",F2,Climate ESG\Sprint 7,1
+Task,Persistir fact_transition_risk_score,"model_name=weighted_sum, run_sk.",F2,Climate ESG\Sprint 7,1
+Feature,Score composto e impacto financeiro,"Composição e DCF NGFS.",F2;Transicao,Climate ESG\Sprint 7,2
+User Story,Score composto físico+transição,"Como analista quero o score composto.",F2;Transicao,Climate ESG\Sprint 7,1
+Task,Compor via compose_score,"Banda combinada.",F2,Climate ESG\Sprint 7,1
+User Story,Projeção de impacto financeiro,"Como analista quero o impacto financeiro.",F2;Transicao,Climate ESG\Sprint 7,2
+Task,Implementar financial_impact,"DCF ajustado por fatores NGFS (Python ou R).",F2,Climate ESG\Sprint 7,2
+Epic,API FastAPI v1,"Endpoints de leitura, explicação e carteira (F1/F2).",F1;F2;API,Climate ESG\Sprint 5,1
+Feature,Endpoints de leitura,"Companies, scores, hazards, regions.",F1;API,Climate ESG\Sprint 5,1
+User Story,Consultar empresas e scores,"Como frontend quero consultar empresas e scores.",F1;API,Climate ESG\Sprint 5,1
+Task,Deps schemas e routes,"deps.py, schemas Pydantic, routes.",F1,Climate ESG\Sprint 5,1
+Task,GET companies e scores,"Lista + scores com bandas e run_sk.",F1,Climate ESG\Sprint 5,1
+Task,GET hazards e regions,"Exposição por ativo e score regional.",F1,Climate ESG\Sprint 5,2
+User Story,Explicação de um score,"Como auditor quero a explicação de um score.",F2;API,Climate ESG\Sprint 7,2
+Task,Modelar fact_score_explanation,"shap_values, narrativa, fontes.",F2,Climate ESG\Sprint 7,2
+Task,GET explanations,"/v1/companies/{lei}/explanations/{run_sk}.",F2,Climate ESG\Sprint 7,2
+User Story,Registrar carteira,"Como investidor quero registrar carteira.",F2;API,Climate ESG\Sprint 8,2
+Task,POST portfolios,"Registra carteira + agregados.",F2,Climate ESG\Sprint 8,2
+Task,OAuth2 por persona,"acionista/analista/auditor (simples no MVP).",F2,Climate ESG\Sprint 8,3
+Epic,Dashboard React,"Mapa, heatmap e drill-down (F1/F2).",F1;F2;Frontend,Climate ESG\Sprint 5,1
+Feature,Scaffold e mapa,"Vite+React+TS+Tailwind e mapa de ativos.",F1;Frontend,Climate ESG\Sprint 5,1
+User Story,Mapa de ativos e hazards,"Como analista quero ver o mapa de ativos e hazards.",F1;Frontend,Climate ESG\Sprint 5,1
+Task,Scaffold frontend,"Vite+React+TS+Tailwind em src/frontend.",F1,Climate ESG\Sprint 5,2
+Task,Mapa Deck.gl,"Ativos com hazards sobrepostos; cliente da API.",F1,Climate ESG\Sprint 5,2
+Feature,Heatmap e drill-down,"Carteira e detalhe por empresa.",F2;Frontend,Climate ESG\Sprint 8,1
+User Story,Heatmap e drill-down,"Como investidor quero heatmap e drill-down.",F2;Frontend,Climate ESG\Sprint 8,1
+Task,Heatmap de carteira,"Visão de portfólio.",F2,Climate ESG\Sprint 8,1
+Task,Drill-down por empresa,"Score + banda + sub-scores (Recharts).",F2,Climate ESG\Sprint 8,1
+Epic,Governança Auditoria e MLOps,"Linhagem, qualidade de dado e model cards (F1+).",F1;Governanca,Climate ESG\Sprint 2,1
+Feature,Linhagem e tracking,"run_sk e MLflow.",F1;Governanca,Climate ESG\Sprint 2,1
+User Story,Linhagem completa de cada score,"Como auditor quero linhagem completa.",F1;Governanca,Climate ESG\Sprint 2,1
+Task,Implementar lineage.py,"Cria run_sk (commit+hash dado+params) antes de gravar fato.",F1,Climate ESG\Sprint 2,1
+Task,Integrar MLflow,"Tracking nos flows.",F1,Climate ESG\Sprint 2,2
+Feature,Qualidade de dado,"Great Expectations/Pandera nas transições.",F1;Governanca,Climate ESG\Sprint 4,1
+User Story,Bloquear dado ruim,"Como pipeline quero bloquear dado fora de faixa.",F1;Governanca,Climate ESG\Sprint 4,1
+Task,Suítes GE/Pandera,"Faixas físicas, NaN, LEI/CNPJ, salto>30pts.",F1,Climate ESG\Sprint 4,2
+Feature,Model cards,"Geração a partir do MLflow.",F2;Governanca,Climate ESG\Sprint 8,2
+User Story,Model card por modelo,"Como auditor quero model cards automáticos.",F2;Governanca,Climate ESG\Sprint 8,2
+Task,Implementar model_cards.py,"A partir de metadados MLflow.",F2,Climate ESG\Sprint 8,2
+Epic,Validação Independente em R,"Cenários NGFS e backtest (F2/F3).",F2;R,Climate ESG\Sprint 7,2
+Feature,Setup R e cenários NGFS,"DESCRIPTION, renv e pathways.",F2;R,Climate ESG\Sprint 7,2
+User Story,Ambiente R reprodutível,"Como validador quero ambiente R reprodutível.",F2;R,Climate ESG\Sprint 7,2
+Task,DESCRIPTION e renv.lock,"Setup do pacote R.",F2,Climate ESG\Sprint 7,3
+Task,Implementar ngfs_pathways.R,"Tratamento de cenários NGFS.",F2,Climate ESG\Sprint 7,3
+User Story,Checar scores Python,"Como validador quero checar os scores.",F2;R,Climate ESG\Sprint 8,2
+Task,Implementar validation.R,"Backtest/calibração; troca via Parquet.",F2,Climate ESG\Sprint 8,2
+Epic,Fecho do MVP e Hardening,"Critério de saída do MVP demonstrável (F2).",F2;MVP,Climate ESG\Sprint 8,1
+Feature,Critério de saída do MVP,"Score composto + dashboard + estabilidade.",F2;MVP,Climate ESG\Sprint 8,1
+User Story,MVP demonstrável,"Como PO quero o MVP demonstrável.",F2;MVP,Climate ESG\Sprint 8,1
+Task,Score composto 2 empresas,"3 cenários × 3 horizontes com banda.",F2,Climate ESG\Sprint 8,1
+Task,Dashboard navegável,"Heatmap + drill-down + mapa internos.",F2,Climate ESG\Sprint 8,1
+Task,Estabilidade e coerência,"Estabilidade trimestral <5%; coerência de sinal.",F2,Climate ESG\Sprint 8,1
+Task,Runbook E2E e ADRs,"Reprodução E2E + atualizar ADRs.",F2,Climate ESG\Sprint 8,2

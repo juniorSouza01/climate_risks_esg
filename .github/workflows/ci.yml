@@ -1,0 +1,71 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  quality:
+    name: Lint + Types + Tests
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        # Imagem com PostGIS já incluído (colunas Geometry do star schema).
+        image: postgis/postgis:16-3.4
+        env:
+          POSTGRES_USER: climate_esg
+          POSTGRES_PASSWORD: changeme_local_only
+          POSTGRES_DB: climate_esg
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U climate_esg"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgresql+psycopg://climate_esg:changeme_local_only@localhost:5432/climate_esg
+      PG_HOST: localhost
+      PG_PORT: "5432"
+      PG_USER: climate_esg
+      PG_PASSWORD: changeme_local_only
+      PG_DB: climate_esg
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python 3.11
+        run: uv python install 3.11
+
+      - name: Install dependencies
+        run: uv sync --extra dev
+
+      - name: Ruff (lint)
+        run: uv run ruff check src tests pipelines
+
+      - name: Ruff (format check)
+        run: uv run ruff format --check src tests pipelines
+
+      - name: Mypy (strict)
+        run: uv run mypy
+
+      - name: Enable PostGIS extension
+        run: uv run python -c "import sqlalchemy as sa; from climate_esg.config import get_settings; e=sa.create_engine(get_settings().sqlalchemy_url); c=e.connect(); c.execute(sa.text('CREATE EXTENSION IF NOT EXISTS postgis')); c.commit()"
+
+      - name: Alembic upgrade head
+        run: uv run alembic upgrade head
+
+      - name: Seed dimensões-base
+        run: uv run climate-esg db seed
+
+      - name: Pytest (rápido)
+        run: uv run pytest -m "not slow and not integration and not needs_data" --cov --cov-report=term-missing

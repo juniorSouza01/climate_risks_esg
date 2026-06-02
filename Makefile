@@ -31,12 +31,15 @@ setup-system: ## Instala Postgres+PostGIS+pgvector via apt (Ubuntu/Mint)
 	bash infra/local/setup_postgres.sh
 
 # ---- Banco de dados ------------------------------------------------------
-.PHONY: db-init db-migrate db-reset db-shell
+.PHONY: db-init db-migrate db-seed db-reset db-shell
 db-init: ## Cria role/db e habilita extensões (postgis, pgvector)
 	bash infra/local/init_db.sh
 
-db-migrate: ## Roda migrations Alembic (placeholder por enquanto)
+db-migrate: ## Aplica migrations Alembic (alembic upgrade head)
 	$(UV) run alembic upgrade head
+
+db-seed: ## Popula dimensões-base (cenários, variáveis, empresas, ativos, datas)
+	$(UV) run climate-esg db seed
 
 db-reset: ## DROP + recria database (CUIDADO em prod)
 	bash infra/local/reset_db.sh

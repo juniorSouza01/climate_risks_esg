@@ -1,10 +1,3 @@
-"""Cliente ESGF/CMIP6.
-
-Parser dos scripts wget gerados pelo MetaGrid ESGF e helpers para download
-paralelo com validação de checksum. Implementa a §7.1 do project.md sem o
-container Airflow (ver ADR-0002 e ADR-0003).
-"""
-
 from __future__ import annotations
 
 import asyncio
@@ -27,13 +20,6 @@ from climate_esg.logging import get_logger
 log = get_logger(__name__)
 
 
-# ---------------------------------------------------------------------------
-# Modelo de dados
-# ---------------------------------------------------------------------------
-
-# Convenção CMIP6 do nome do arquivo:
-#   <variable>_<table>_<source>_<experiment>_<member>_<grid>_<period>.nc
-# Ex.: rsdt_Amon_EC-Earth3_historical_r120i1p1f1_gr_198801-198812.nc
 _FILENAME_RE = re.compile(
     r"^(?P<variable>[A-Za-z0-9]+)_"
     r"(?P<table>[A-Za-z]+)_"
@@ -105,13 +91,6 @@ class ESGFManifest:
     def experiments(self) -> set[str]:
         return {id_.experiment for f in self.files if (id_ := f.cmip6)}
 
-
-# ---------------------------------------------------------------------------
-# Parser
-# ---------------------------------------------------------------------------
-
-# Cada linha dentro do bloco download_files tem 4 campos quote-delimitados:
-#   'filename' 'url' 'checksum_type' 'checksum'
 _LINE_RE = re.compile(
     r"^\s*"
     r"'(?P<f>[^']+)'\s+"
@@ -122,15 +101,7 @@ _LINE_RE = re.compile(
 
 
 def parse_wget_script(path: str | Path) -> ESGFManifest:
-    """Extrai a lista de arquivos de um wget script do MetaGrid ESGF.
 
-    Procura o bloco delimitado por ``download_files="$(cat <<EOF--...`` e
-    ``EOF--``. Cada linha não vazia dentro do bloco é uma entrada.
-
-    Levanta:
-        FileNotFoundError: se ``path`` não existir.
-        ValueError: se nenhum bloco ``download_files`` for encontrado.
-    """
     p = Path(path)
     if not p.exists():
         raise FileNotFoundError(f"wget script não encontrado: {p}")
@@ -190,10 +161,6 @@ def parse_wget_directory(directory: str | Path) -> list[ESGFManifest]:
     return [parse_wget_script(s) for s in scripts]
 
 
-# ---------------------------------------------------------------------------
-# Download
-# ---------------------------------------------------------------------------
-
 
 def _hash_file(path: Path, algo: str) -> str:
     """Computa o checksum de um arquivo em chunks. Não carrega em memória."""
@@ -223,11 +190,7 @@ async def _download_one(
     *,
     chunk_size: int = 1 << 20,
 ) -> Path:
-    """Baixa um único ESGFFile para ``dest_dir/file.filename``.
 
-    Reusa download anterior se o arquivo já existe e o checksum bate
-    (idempotência prevista no project.md §7.1).
-    """
     dest = dest_dir / file.filename
 
     if dest.exists() and verify_checksum(dest, file.checksum, file.checksum_type):

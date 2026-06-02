@@ -89,7 +89,13 @@ package = true
 line-length = 100
 target-version = "py311"
 src = ["src", "tests", "pipelines"]
-extend-exclude = ["data", "docs/source", "src/r_analytics", "src/frontend"]
+extend-exclude = [
+    "data",
+    "docs/source",
+    "src/r_analytics",
+    "src/frontend",
+    "src/climate_esg/db/migrations/versions",
+]
 
 [tool.ruff.lint]
 select = [
@@ -111,6 +117,8 @@ ignore = [
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["ANN", "B", "SIM"]
 "pipelines/**" = ["ANN"]
+# Migrations Alembic seguem o estilo gerado (imports e assinaturas fixas da API).
+"src/climate_esg/db/migrations/**" = ["ANN", "ARG001", "E402", "F401", "I"]
 
 [tool.mypy]
 python_version = "3.11"
@@ -118,7 +126,7 @@ strict = true
 warn_unused_ignores = true
 warn_redundant_casts = true
 files = ["src/climate_esg"]
-exclude = ["src/r_analytics", "src/frontend", "data", "docs"]
+exclude = ["src/r_analytics", "src/frontend", "data", "docs", "src/climate_esg/db/migrations"]
 
 [[tool.mypy.overrides]]
 module = [
