@@ -1,21 +1,32 @@
-"""Score de risco de transição.
-
-ADR-0004: no MVP é **soma ponderada calibrada**, não XGBoost. XGBoost só
-volta na F3 Beta quando N for compatível com a métrica `AUC > 0.75 OOT`.
-"""
-
 from __future__ import annotations
 
-from climate_esg.modeling.scoring import ScoreBand
+from collections.abc import Mapping
+from dataclasses import dataclass
+
+from climate_esg.modeling.scoring import ScoreBand, weighted_score_band
+from climate_esg.modeling.transition_config import SUBSCORE_WEIGHTS
+
+
+@dataclass(frozen=True, slots=True)
+class TransitionScoreResult:
+    band: ScoreBand
+    sub_score_policy: float
+    sub_score_tech: float
+    sub_score_market: float
 
 
 def compute_transition_score(
-    company_sk: int,
-    scenario_sk: int,
-    horizon_year: int,
-) -> ScoreBand:
-    """Stub MVP — soma ponderada de sub-scores política/tecnológica/mercado."""
-    raise NotImplementedError(
-        "transition_risk.compute_transition_score: aguardando F2 "
-        "(coletor CDP/CVM + tabela de pesos calibrados)"
+    policy: float,
+    tech: float,
+    market: float,
+    *,
+    weights: Mapping[str, float] = SUBSCORE_WEIGHTS,
+) -> TransitionScoreResult:
+    subscores = {"policy": policy, "tech": tech, "market": market}
+    band = weighted_score_band(subscores, weights)
+    return TransitionScoreResult(
+        band=band,
+        sub_score_policy=policy,
+        sub_score_tech=tech,
+        sub_score_market=market,
     )

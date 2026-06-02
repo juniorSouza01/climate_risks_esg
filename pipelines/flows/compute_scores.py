@@ -1,15 +1,3 @@
-"""Flow Prefect 3 — cálculo de scores a partir da camada ouro.
-
-No MVP cobre o score físico (soma ponderada de indicadores normalizados,
-project.md §8). Lê ``fact_climate_indicator`` e grava ``fact_physical_risk_score``
-com ``run_sk`` (linhagem §2.2.2). Transição (ADR-0004) entra na F2.
-
-⚠️ MVP-grade: indicador = climatologia média da variável. Scores significativos
-dependem das variáveis de hazard (pr/tasmax/sfcWindmax) e cenários SSP, ainda a
-ingerir (ADR-0005). Com apenas ``historical``/``rsdt`` a maioria das empresas é
-pulada por falta de variável mapeável.
-"""
-
 from __future__ import annotations
 
 from typing import Any
@@ -24,6 +12,7 @@ from climate_esg.db.models import (
     DimScenario,
     FactClimateIndicator,
     FactPhysicalRiskScore,
+    FactTransitionRiskScore,
 )
 from climate_esg.governance.lineage import start_model_run
 from climate_esg.modeling.physical_config import (
@@ -32,24 +21,31 @@ from climate_esg.modeling.physical_config import (
     PHYSICAL_MODEL_VERSION,
 )
 from climate_esg.modeling.physical_risk import compute_physical_score
+from climate_esg.modeling.scoring import ScoreBand, compose_score
+from climate_esg.modeling.transition_config import (
+    COMPANY_TRANSITION_INPUTS,
+    SUBSCORE_WEIGHTS,
+    TRANSITION_MODEL_NAME,
+    TRANSITION_MODEL_VERSION,
+)
+from climate_esg.modeling.transition_risk import compute_transition_score
+
+
+def _scenario_sk(session: sa.orm.Session, scenario_name: str) -> int | None:
+    return session.scalar(
+        sa.select(DimScenario.scenario_sk).where(DimScenario.name == scenario_name)
+    )
 
 
 @task
 def score_physical(scenario_name: str, horizon_year: int) -> int:
-    """Calcula e grava o score físico de cada empresa para um cenário/horizonte.
-
-    Retorna o número de empresas pontuadas. Empresas sem variável de hazard
-    mapeável são puladas (logadas), não recebem score imputado.
-    """
     logger = get_run_logger()
     scored = 0
 
     with session_scope() as session:
-        scenario_sk = session.scalar(
-            sa.select(DimScenario.scenario_sk).where(DimScenario.name == scenario_name)
-        )
+        scenario_sk = _scenario_sk(session, scenario_name)
         if scenario_sk is None:
-            logger.warning("score_physical: cenário '%s' não existe — rode o seed", scenario_name)
+            logger.warning("score_physical: cenário '%s' não existe", scenario_name)
             return 0
 
         run_sk = start_model_run(
@@ -59,7 +55,6 @@ def score_physical(scenario_name: str, horizon_year: int) -> int:
             hyperparams={"weights": HAZARD_WEIGHTS, "horizon_year": horizon_year},
         )
 
-        # Climatologia média por (empresa, variável CF) no cenário.
         mean_rows = session.execute(
             sa.select(
                 DimAsset.company_sk,
@@ -75,7 +70,6 @@ def score_physical(scenario_name: str, horizon_year: int) -> int:
             .group_by(DimAsset.company_sk, DimClimateVariable.cf_code)
         ).all()
 
-        # Nº de ativos com dado por empresa.
         asset_counts = dict(
             session.execute(
                 sa.select(
@@ -99,8 +93,7 @@ def score_physical(scenario_name: str, horizon_year: int) -> int:
                 result = compute_physical_score(means)
             except ValueError:
                 logger.warning(
-                    "score_physical: empresa %s sem variável de hazard mapeável "
-                    "(vars=%s) — pulando",
+                    "score_physical: empresa %s sem variável de hazard mapeável (vars=%s)",
                     company_sk,
                     sorted(means),
                 )
@@ -120,19 +113,115 @@ def score_physical(scenario_name: str, horizon_year: int) -> int:
                 )
             )
             scored += 1
+
+    logger.info(
+        "score_physical: %d empresas (cenário=%s h=%s)", scored, scenario_name, horizon_year
+    )
+    return scored
+
+
+@task
+def score_transition(scenario_name: str, horizon_year: int) -> int:
+    logger = get_run_logger()
+    scored = 0
+
+    with session_scope() as session:
+        scenario_sk = _scenario_sk(session, scenario_name)
+        if scenario_sk is None:
+            logger.warning("score_transition: cenário '%s' não existe", scenario_name)
+            return 0
+
+        run_sk = start_model_run(
+            session,
+            model_name=TRANSITION_MODEL_NAME,
+            model_version=TRANSITION_MODEL_VERSION,
+            hyperparams={"weights": SUBSCORE_WEIGHTS, "horizon_year": horizon_year},
+        )
+
+        for company_sk, inp in COMPANY_TRANSITION_INPUTS.items():
+            result = compute_transition_score(inp.policy, inp.tech, inp.market)
+            session.add(
+                FactTransitionRiskScore(
+                    company_sk=company_sk,
+                    scenario_sk=scenario_sk,
+                    horizon_year=horizon_year,
+                    run_sk=run_sk,
+                    score_0_100=result.band.central,
+                    band_low=result.band.low,
+                    band_high=result.band.high,
+                    carbon_intensity=inp.carbon_intensity,
+                    target_alignment=inp.target_alignment,
+                    sub_score_policy=result.sub_score_policy,
+                    sub_score_tech=result.sub_score_tech,
+                    sub_score_market=result.sub_score_market,
+                )
+            )
+            scored += 1
+
+    logger.info(
+        "score_transition: %d empresas (cenário=%s h=%s)", scored, scenario_name, horizon_year
+    )
+    return scored
+
+
+def _latest_bands(
+    session: sa.orm.Session, table: Any, scenario_sk: int, horizon_year: int
+) -> dict[int, ScoreBand]:
+    latest = (
+        sa.select(table.company_sk, sa.func.max(table.run_sk).label("run_sk"))
+        .where(table.scenario_sk == scenario_sk, table.horizon_year == horizon_year)
+        .group_by(table.company_sk)
+        .subquery()
+    )
+    rows = session.execute(
+        sa.select(table.company_sk, table.score_0_100, table.band_low, table.band_high).join(
+            latest,
+            sa.and_(
+                table.company_sk == latest.c.company_sk,
+                table.run_sk == latest.c.run_sk,
+            ),
+        )
+    ).all()
+    return {
+        company_sk: ScoreBand(central=float(c), low=float(lo), high=float(hi))
+        for company_sk, c, lo, hi in rows
+    }
+
+
+@task
+def score_composite(scenario_name: str, horizon_year: int) -> list[dict[str, Any]]:
+    logger = get_run_logger()
+    composed: list[dict[str, Any]] = []
+
+    with session_scope() as session:
+        scenario_sk = _scenario_sk(session, scenario_name)
+        if scenario_sk is None:
+            return []
+
+        physical = _latest_bands(session, FactPhysicalRiskScore, scenario_sk, horizon_year)
+        transition = _latest_bands(session, FactTransitionRiskScore, scenario_sk, horizon_year)
+
+        for company_sk in sorted(set(physical) & set(transition)):
+            band = compose_score(physical[company_sk], transition[company_sk])
+            composed.append(
+                {
+                    "company_sk": company_sk,
+                    "horizon_year": horizon_year,
+                    "central": round(band.central, 2),
+                    "low": round(band.low, 2),
+                    "high": round(band.high, 2),
+                }
+            )
             logger.info(
-                "score_physical: empresa=%s cenário=%s horizonte=%s score=%.1f [%.1f, %.1f] cobertura=%.0f%%",
+                "composite: empresa=%s h=%s score=%.1f [%.1f, %.1f]",
                 company_sk,
-                scenario_name,
                 horizon_year,
-                result.band.central,
-                result.band.low,
-                result.band.high,
-                result.coverage_pct,
+                band.central,
+                band.low,
+                band.high,
             )
 
-    logger.info("score_physical: %d empresas pontuadas (run_sk=%s)", scored, run_sk)
-    return scored
+    return composed
 
 
 @flow(name="compute-scores")
@@ -140,5 +229,14 @@ def compute_scores_flow(
     scenario_name: str = "historical",
     horizons: tuple[int, ...] = (2030, 2040, 2050),
 ) -> dict[str, Any]:
-    """Calcula o score físico para um cenário em cada horizonte."""
-    return {str(h): score_physical(scenario_name, h) for h in horizons}
+    result: dict[str, Any] = {}
+    for h in horizons:
+        physical = score_physical(scenario_name, h)
+        transition = score_transition(scenario_name, h)
+        composite = score_composite(scenario_name, h)
+        result[str(h)] = {
+            "physical": physical,
+            "transition": transition,
+            "composite": composite,
+        }
+    return result
