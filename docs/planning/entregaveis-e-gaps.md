@@ -81,13 +81,13 @@
 - [ ] Geometrias de Joinville/SC (malha IBGE) em `dim_region`.
 
 ## D6 — Modelagem física *(F1)*
-**Pronto:** contrato `ScoreBand` + `compose_score` ([`scoring.py`](../../src/climate_esg/modeling/scoring.py)), testados.
+**Pronto:** contrato `ScoreBand` + `compose_score` + helpers `clamp`/`normalize_linear`/`weighted_score_band` ([`scoring.py`](../../src/climate_esg/modeling/scoring.py), testados). **✅ Engine de score físico** (`physical_risk.compute_physical_score`) + **pesos/refs externalizados** ([`physical_config.py`](../../src/climate_esg/modeling/physical_config.py)) + flow [`compute_scores.py`](../../pipelines/flows/compute_scores.py) escrevendo `fact_physical_risk_score` com `run_sk`. Engine **validada por 14 testes unitários**; encanamento de banco validado (flow roda, pula empresas sem hazard mapeável). 🟡 indicador = climatologia média (smoke-grade).
 
 **Falta:**
-- [ ] `climate_indices.py`: índices xclim (Rx5day, R99pTOT, TX90p, WSDI, dias > 32°C) → `fact_climate_indicator`.
-- [ ] `physical_risk.py`: hoje `NotImplementedError`. Implementar soma ponderada de indicadores normalizados por hazard (enchente, deslizamento, vento, calor) → `fact_physical_risk_score` com banda.
-- [ ] Tabela de pesos por hazard externalizada em config (não em código) — ADR-0005/risco regulatório.
-- [ ] Validação: coerência de sinal (enchente 2017 Joinville ↑ score).
+- [ ] `climate_indices.py`: índices xclim **ricos** (Rx5day, R99pTOT, TX90p, WSDI, dias > 32°C) → hoje só série mensal no ponto (nearest-point).
+- [ ] **Ingerir variáveis de hazard** (`pr`/`tasmax`/`sfcWindmax`) — sem elas, score físico é pulado (só `rsdt` ingerido). `tasmin`→calor já mapeado (ingerir 1 script tasmin dá um score real).
+- [ ] Calibrar faixas de referência (`INDICATOR_REFERENCE`) por literatura, não chute.
+- [ ] Validação: coerência de sinal (enchente 2017 Joinville ↑ score) — requer `pr` + cenários SSP.
 
 ## D7 — Modelagem de transição *(F2)*
 **Pronto:** contrato definido; `transition_risk.py` é stub com semântica correta (soma ponderada, não XGBoost — ADR-0004).
