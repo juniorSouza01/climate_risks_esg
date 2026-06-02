@@ -8,11 +8,12 @@ if TYPE_CHECKING:
     import xarray as xr
 
 
-def _time_coder() -> "xr.coders.CFDatetimeCoder":
+def _time_coder() -> xr.coders.CFDatetimeCoder:
     """Coder de tempo CF (substitui o kwarg ``use_cftime``, hoje deprecado)."""
     import xarray as xr
 
     return xr.coders.CFDatetimeCoder(use_cftime=True)
+
 
 # Coordenadas/variáveis auxiliares que NÃO são a variável de dado de interesse.
 _AUX_NAMES = {
@@ -34,7 +35,7 @@ _AUX_NAMES = {
 }
 
 
-def open_netcdf(path: str | Path, *, chunks: str | dict[str, int] | None = "auto") -> "xr.Dataset":
+def open_netcdf(path: str | Path, *, chunks: str | dict[str, int] | None = "auto") -> xr.Dataset:
 
     import xarray as xr
 
@@ -43,7 +44,7 @@ def open_netcdf(path: str | Path, *, chunks: str | dict[str, int] | None = "auto
 
 def open_mfnetcdf(
     paths: Iterable[str | Path], *, chunks: str | dict[str, int] | None = "auto"
-) -> "xr.Dataset":
+) -> xr.Dataset:
 
     import xarray as xr
 
@@ -62,7 +63,7 @@ def open_mfnetcdf(
     )
 
 
-def main_data_var(ds: "xr.Dataset", *, expected: str | None = None) -> str:
+def main_data_var(ds: xr.Dataset, *, expected: str | None = None) -> str:
     """Descobre o nome da variável de dado principal do dataset.
 
     Se ``expected`` for passado (ex.: derivado do nome do arquivo CMIP6) e

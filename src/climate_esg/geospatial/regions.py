@@ -5,7 +5,6 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True, slots=True)
 class BBox:
-
     lon_min: float
     lon_max: float
     lat_min: float

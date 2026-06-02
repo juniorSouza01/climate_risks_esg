@@ -39,4 +39,4 @@ def get_logger(name: str | None = None) -> structlog.stdlib.BoundLogger:
     """Atalho para structlog.get_logger com configuração lazy."""
     if not structlog.is_configured():
         configure_logging()
-    return structlog.get_logger(name)
+    return structlog.get_logger(name)  # type: ignore[no-any-return]

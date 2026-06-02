@@ -15,7 +15,7 @@ class Base(DeclarativeBase):
     """Base declarativa única para todo o ORM."""
 
 
-def make_engine() -> "Engine":  # type: ignore[name-defined]  # noqa: F821
+def make_engine() -> Engine:  # type: ignore[name-defined]  # noqa: F821
     """Cria engine novo a partir das settings. Não cacheado."""
     from sqlalchemy.engine import Engine  # local para evitar import top-level pesado
 

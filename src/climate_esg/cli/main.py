@@ -43,10 +43,7 @@ def manifests_inspect(
 ) -> None:
     """Sumariza um wget script (ou diretório com vários)."""
     configure_logging()
-    if path.is_file():
-        manifests = [parse_wget_script(path)]
-    else:
-        manifests = parse_wget_directory(path)
+    manifests = [parse_wget_script(path)] if path.is_file() else parse_wget_directory(path)
 
     table = Table(title="ESGF manifests")
     table.add_column("script", style="cyan", no_wrap=True)

@@ -18,18 +18,14 @@ _LAT_NAMES = ("lat", "latitude", "rlat", "y", "nav_lat")
 _LON_NAMES = ("lon", "longitude", "rlon", "x", "nav_lon")
 
 
-def _coord_name(da: "xr.DataArray", candidates: tuple[str, ...]) -> str:
+def _coord_name(da: xr.DataArray, candidates: tuple[str, ...]) -> str:
     for name in candidates:
         if name in da.coords or name in da.dims:
             return name
-    raise ValueError(
-        f"coordenada não encontrada entre {candidates} (coords={list(da.coords)})"
-    )
+    raise ValueError(f"coordenada não encontrada entre {candidates} (coords={list(da.coords)})")
 
 
-def nearest_point_monthly(
-    da: "xr.DataArray", lat: float, lon: float
-) -> list[tuple[int, float]]:
+def nearest_point_monthly(da: xr.DataArray, lat: float, lon: float) -> list[tuple[int, float]]:
     """Série mensal no ponto de grade mais próximo de (lat, lon).
 
     Retorna pares ``(date_sk, valor)`` onde ``date_sk = YYYYMM01`` (primeiro dia

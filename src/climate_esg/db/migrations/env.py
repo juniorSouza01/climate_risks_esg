@@ -17,7 +17,7 @@ from sqlalchemy import engine_from_config, pool
 
 from climate_esg.config import get_settings
 from climate_esg.db.base import Base
-from climate_esg.db import models  # noqa: F401  (registra tabelas em Base.metadata)
+from climate_esg.db import models
 
 config = context.config
 
@@ -25,9 +25,7 @@ if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
 # Injeta a URL real (escapando %, que o ConfigParser interpreta).
-config.set_main_option(
-    "sqlalchemy.url", get_settings().sqlalchemy_url.replace("%", "%%")
-)
+config.set_main_option("sqlalchemy.url", get_settings().sqlalchemy_url.replace("%", "%%"))
 
 target_metadata = Base.metadata
 
@@ -45,9 +43,7 @@ _POSTGIS_TABLES = {
 
 
 def include_object(obj, name, type_, reflected, compare_to):  # type: ignore[no-untyped-def]
-    if type_ == "table" and name in _POSTGIS_TABLES:
-        return False
-    return True
+    return not (type_ == "table" and name in _POSTGIS_TABLES)
 
 
 def run_migrations_offline() -> None:

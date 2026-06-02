@@ -117,14 +117,14 @@ def validate_netcdf(paths: list[Path]) -> list[Path]:
 # ---------------------------------------------------------------------------
 
 
-def _coord_name(ds: "xr.Dataset", candidates: tuple[str, ...]) -> str:
+def _coord_name(ds: xr.Dataset, candidates: tuple[str, ...]) -> str:
     for name in candidates:
         if name in ds.coords or name in ds.dims:
             return name
     raise ValueError(f"coordenada não encontrada entre {candidates}")
 
 
-def _normalize_longitudes(ds: "xr.Dataset") -> "xr.Dataset":
+def _normalize_longitudes(ds: xr.Dataset) -> xr.Dataset:
     """Converte longitudes 0..360 para -180..180 e reordena, se necessário."""
     lon_name = _coord_name(ds, _LON_NAMES)
     if float(ds[lon_name].max()) > 180.0:
@@ -133,7 +133,7 @@ def _normalize_longitudes(ds: "xr.Dataset") -> "xr.Dataset":
     return ds
 
 
-def _crop_bbox(ds: "xr.Dataset", bbox: BBox) -> "xr.Dataset":
+def _crop_bbox(ds: xr.Dataset, bbox: BBox) -> xr.Dataset:
     """Recorta o dataset ao bounding box (lida com latitude asc/desc)."""
     lat_name = _coord_name(ds, _LAT_NAMES)
     lon_name = _coord_name(ds, _LON_NAMES)
@@ -241,9 +241,7 @@ def materialize_indicators(promoted: list[dict[str, str]]) -> int:
             train_data_version=hash_data_version(stores),
         )
 
-        assets = session.scalars(
-            sa.select(DimAsset).order_by(DimAsset.asset_sk)
-        ).all()
+        assets = session.scalars(sa.select(DimAsset).order_by(DimAsset.asset_sk)).all()
         valid_date_sks = set(session.scalars(sa.select(DimDate.date_sk)).all())
 
         for meta in promoted:

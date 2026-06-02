@@ -112,6 +112,10 @@ select = [
 ignore = [
     "ANN401",   # allow Any in seldom places
     "E501",     # let formatter handle line length
+    "RUF001",   # docstrings/strings em pt-BR usam Unicode legítimo (×, –, —, º)
+    "RUF002",
+    "RUF003",
+    "B008",     # typer.Argument()/fastapi.Depends() em defaults é o padrão idiomático
 ]
 
 [tool.ruff.lint.per-file-ignores]

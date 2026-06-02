@@ -8,9 +8,9 @@
 
 ## 1. Resumo executivo
 
-O projeto está na **Fase F0 — Fundação**. O *scaffolding* do monorepo está escrito e commitado (`ba8ea26 firt commit`, árvore limpa), mas a F0 **ainda não fechou seu critério de saída**: não existe execução end-to-end de um NetCDF promovido de bronze até ouro, o banco nunca foi materializado (sem migrations) e o ambiente local não está provisionado.
+O projeto está na **Fase F0 — Fundação**, com o **critério de saída ATINGIDO** (2026-06-01): ambiente provisionado, banco materializado e **execução end-to-end** de um dataset CMIP6 promovido de bronze até ouro com linhagem (`run_sk`), validada num ambiente real.
 
-**Veredito:** ~60% da F0 está feita em forma de código-esqueleto. Os ~40% restantes são justamente as partes que provam que a fundação funciona (ambiente, banco, pipeline E2E, CI).
+**Veredito:** F0 fechada. Próximo: F1 — MVP físico (índices xclim + score físico).
 
 | Dimensão | Estado |
 |---|---|
@@ -18,14 +18,15 @@ O projeto está na **Fase F0 — Fundação**. O *scaffolding* do monorepo está
 | Decisões de arquitetura (ADRs 1–5) | ✅ Documentadas |
 | Parser/ingestão ESGF | ✅ Implementado e testado |
 | Contrato de score (`ScoreBand`) | ✅ Implementado e testado |
-| ORM do star schema | ✅ Modelado + migration inicial escrita |
-| Pipeline bronze→prata→ouro | 🟡 `fetch` ✅; `validate`/`promote`/`materialize` + linhagem escritos (não validados contra dado real) |
-| Ambiente local (uv, venv, deps) | ❌ Não provisionado |
-| Banco materializado (Alembic) | 🟡 Migration `0001` + `seed.py` escritos; **não validados** contra banco vivo (falta venv/sudo) |
-| CI | 🟡 `ci.yml` + `.pre-commit-config.yaml` escritos; ainda não rodaram |
+| ORM do star schema | ✅ Modelado + migration `0001` aplicada |
+| Pipeline bronze→prata→ouro | ✅ `fetch`/`validate`/`promote`/`materialize` + linhagem — **E2E validado** (45 arquivos → 1 Zarr → 1080 linhas em `fact_climate_indicator`) |
+| Ambiente local (uv, venv, deps, Postgres+PostGIS) | ✅ Provisionado |
+| Banco materializado (Alembic + seed) | ✅ `make db-migrate` + `db-seed` rodados |
+| Gates de qualidade (ruff/mypy/pytest) | ✅ Verdes (`ruff` ok, `mypy` 0 erros, 23 testes) |
+| CI (GitHub Actions) | 🟡 `ci.yml` escrito + gates passam localmente; falta primeiro push/validação no GH |
 | Modelos de risco (físico/transição) | 🟡 Stubs (correto — são F1/F2) |
 
-> **Atualização 2026-06-01 (Sprint 1, código sem rede/sudo):** foram escritos — Alembic (`alembic.ini`, `migrations/env.py`, `script.py.mako`, migration `0001_initial_star_schema`), `db/seed.py` + CLI `climate-esg db seed`, `.github/workflows/ci.yml` (Postgres+PostGIS service container), `.pre-commit-config.yaml`, e alvos `db-migrate`/`db-seed` no Makefile. **Validação pendente:** rodar `make install-dev && make db-init && make db-migrate && make db-seed && make check` num ambiente provisionado.
+> **Marco 2026-06-01 — F0 fechada.** Smoke test E2E: `ingest_cmip6_flow(..., do_validate=True, do_promote=True, do_materialize=True)` → `{'fetched': 45, 'validated': 45, 'promoted': 1, 'indicator_rows': 1080}` (540 datas distintas 1970–2014, 2 ativos, 1 `run_sk`). Calendário `dim_date` cobre 1850–2100. Entregues no Sprint 1+2: Alembic + migration `0001`, `db/seed.py` + CLI `db seed`, pipeline completo (`validate_netcdf`/`promote_to_silver`/`materialize_indicators`), linhagem (`governance/lineage.py`), validação CF (`ingestion/cf_validation.py`), índices (`modeling/climate_indices.py`), CI + pre-commit.
 
 ---
 

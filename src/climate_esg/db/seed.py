@@ -213,7 +213,7 @@ def _seed_dates(session: Session) -> int:
             )
         cur += one_day
     if rows:
-        session.execute(sa.insert(DimDate.__table__), rows)
+        session.execute(sa.insert(DimDate), rows)
     return len(rows)
 
 

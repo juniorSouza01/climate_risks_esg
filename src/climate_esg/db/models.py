@@ -45,9 +45,7 @@ class DimCompany(Base):
     """Empresas cobertas. SCD Tipo 2 via validity_from/validity_to."""
 
     __tablename__ = "dim_company"
-    __table_args__ = (
-        UniqueConstraint("lei", "validity_from", name="uq_dim_company_lei_from"),
-    )
+    __table_args__ = (UniqueConstraint("lei", "validity_from", name="uq_dim_company_lei_from"),)
 
     company_sk: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     lei: Mapped[str | None] = mapped_column(String(20), index=True)
@@ -62,7 +60,7 @@ class DimCompany(Base):
     validity_from: Mapped[dt.date] = mapped_column(Date)
     validity_to: Mapped[dt.date | None] = mapped_column(Date, nullable=True)
 
-    assets: Mapped[list["DimAsset"]] = relationship(back_populates="company")
+    assets: Mapped[list[DimAsset]] = relationship(back_populates="company")
 
 
 class DimAsset(Base):
@@ -71,9 +69,7 @@ class DimAsset(Base):
     __tablename__ = "dim_asset"
     # Índice espacial declarado explicitamente (spatial_index=False na coluna) para
     # manter metadata e migration Alembic em sincronia. Ver ADR-0002 §Consequências.
-    __table_args__ = (
-        Index("idx_dim_asset_geom", "geom", postgresql_using="gist"),
-    )
+    __table_args__ = (Index("idx_dim_asset_geom", "geom", postgresql_using="gist"),)
 
     asset_sk: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     company_sk: Mapped[int] = mapped_column(
@@ -100,9 +96,7 @@ class DimRegion(Base):
     """Regiões administrativas e geometrias agregadas."""
 
     __tablename__ = "dim_region"
-    __table_args__ = (
-        Index("idx_dim_region_geom", "geom", postgresql_using="gist"),
-    )
+    __table_args__ = (Index("idx_dim_region_geom", "geom", postgresql_using="gist"),)
 
     region_sk: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     iso_country: Mapped[str] = mapped_column(String(2), index=True)
@@ -186,9 +180,7 @@ class FactClimateIndicator(Base):
     __tablename__ = "fact_climate_indicator"
 
     id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
-    asset_sk: Mapped[int] = mapped_column(
-        BigInteger, ForeignKey("dim_asset.asset_sk"), index=True
-    )
+    asset_sk: Mapped[int] = mapped_column(BigInteger, ForeignKey("dim_asset.asset_sk"), index=True)
     var_sk: Mapped[int] = mapped_column(
         Integer, ForeignKey("dim_climate_variable.var_sk"), index=True
     )

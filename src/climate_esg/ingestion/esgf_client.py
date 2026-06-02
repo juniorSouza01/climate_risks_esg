@@ -3,9 +3,9 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import re
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Iterator
 
 import httpx
 from tenacity import (
@@ -44,7 +44,7 @@ class CMIP6Identifier:
     period: str
 
     @classmethod
-    def from_filename(cls, filename: str) -> "CMIP6Identifier | None":
+    def from_filename(cls, filename: str) -> CMIP6Identifier | None:
         """Extrai metadado CF do nome. Retorna None se o nome não bater."""
         m = _FILENAME_RE.match(Path(filename).name)
         if not m:
@@ -90,6 +90,7 @@ class ESGFManifest:
 
     def experiments(self) -> set[str]:
         return {id_.experiment for f in self.files if (id_ := f.cmip6)}
+
 
 _LINE_RE = re.compile(
     r"^\s*"
@@ -161,7 +162,6 @@ def parse_wget_directory(directory: str | Path) -> list[ESGFManifest]:
     return [parse_wget_script(s) for s in scripts]
 
 
-
 def _hash_file(path: Path, algo: str) -> str:
     """Computa o checksum de um arquivo em chunks. Não carrega em memória."""
     h = hashlib.new(algo)
@@ -207,9 +207,7 @@ async def _download_one(
 
     if not verify_checksum(tmp, file.checksum, file.checksum_type):
         tmp.unlink(missing_ok=True)
-        raise ValueError(
-            f"checksum inválido para {file.filename}; arquivo descartado"
-        )
+        raise ValueError(f"checksum inválido para {file.filename}; arquivo descartado")
 
     tmp.rename(dest)
     log.info("esgf.download.ok", filename=file.filename, size=dest.stat().st_size)
@@ -246,7 +244,5 @@ def download_manifest(
 ) -> list[Path]:
     """Variante síncrona, usável dentro de tasks Prefect que rodam em thread."""
     return asyncio.run(
-        download_manifest_async(
-            manifest, dest_dir, concurrency=concurrency, timeout_s=timeout_s
-        )
+        download_manifest_async(manifest, dest_dir, concurrency=concurrency, timeout_s=timeout_s)
     )
