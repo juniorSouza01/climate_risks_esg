@@ -245,3 +245,51 @@ class FactTransitionRiskScore(Base):
     computed_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
+
+
+class FactHazardExposure(Base):
+    """Exposição normalizada por ativo × hazard × cenário × horizonte."""
+
+    __tablename__ = "fact_hazard_exposure"
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    asset_sk: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("dim_asset.asset_sk"), index=True
+    )
+    hazard_type: Mapped[str] = mapped_column(String(40), index=True)
+    scenario_sk: Mapped[int] = mapped_column(
+        Integer, ForeignKey("dim_scenario.scenario_sk"), index=True
+    )
+    horizon_year: Mapped[int] = mapped_column(Integer)
+    run_sk: Mapped[int] = mapped_column(BigInteger, ForeignKey("dim_model_run.run_sk"))
+    exposure_normalized: Mapped[float] = mapped_column(Numeric(5, 4))
+    return_period: Mapped[float | None] = mapped_column(Numeric)
+    capex_fraction_at_risk: Mapped[float | None] = mapped_column(Numeric(5, 4))
+    computed_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+
+class FactScoreExplanation(Base):
+    """Narrativa e drivers do score por empresa × cenário × horizonte × run.
+
+    MVP: narrativa determinística por template (§8). SHAP/LLM/RAG na Beta.
+    """
+
+    __tablename__ = "fact_score_explanation"
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    company_sk: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("dim_company.company_sk"), index=True
+    )
+    scenario_sk: Mapped[int] = mapped_column(
+        Integer, ForeignKey("dim_scenario.scenario_sk"), index=True
+    )
+    horizon_year: Mapped[int] = mapped_column(Integer)
+    run_sk: Mapped[int] = mapped_column(BigInteger, ForeignKey("dim_model_run.run_sk"))
+    narrative_md: Mapped[str] = mapped_column(Text)
+    drivers: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    sources: Mapped[list[Any] | None] = mapped_column(JSON)
+    computed_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )

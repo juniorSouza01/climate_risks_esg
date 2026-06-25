@@ -9,12 +9,15 @@ from climate_esg.db.base import session_scope
 from climate_esg.db.models import (
     DimAsset,
     DimClimateVariable,
+    DimCompany,
     DimScenario,
     FactClimateIndicator,
     FactPhysicalRiskScore,
+    FactScoreExplanation,
     FactTransitionRiskScore,
 )
 from climate_esg.governance.lineage import start_model_run
+from climate_esg.modeling.explanation import build_narrative
 from climate_esg.modeling.physical_config import (
     HAZARD_WEIGHTS,
     PHYSICAL_MODEL_NAME,
@@ -29,6 +32,9 @@ from climate_esg.modeling.transition_config import (
     TRANSITION_MODEL_VERSION,
 )
 from climate_esg.modeling.transition_risk import compute_transition_score
+
+EXPLANATION_MODEL_NAME = "score_explanation"
+EXPLANATION_MODEL_VERSION = "0.1.0"
 
 
 def _scenario_sk(session: sa.orm.Session, scenario_name: str) -> int | None:
@@ -224,6 +230,111 @@ def score_composite(scenario_name: str, horizon_year: int) -> list[dict[str, Any
     return composed
 
 
+def _opt_float(value: float | None) -> float | None:
+    return float(value) if value is not None else None
+
+
+def _latest_physical_coverage(
+    session: sa.orm.Session, scenario_sk: int, horizon_year: int
+) -> dict[int, float]:
+    f = FactPhysicalRiskScore
+    latest = (
+        sa.select(f.company_sk, sa.func.max(f.run_sk).label("run_sk"))
+        .where(f.scenario_sk == scenario_sk, f.horizon_year == horizon_year)
+        .group_by(f.company_sk)
+        .subquery()
+    )
+    rows = session.execute(
+        sa.select(f.company_sk, f.coverage_pct).join(
+            latest,
+            sa.and_(f.company_sk == latest.c.company_sk, f.run_sk == latest.c.run_sk),
+        )
+    ).all()
+    return {company_sk: float(cov) for company_sk, cov in rows}
+
+
+def _latest_transition_subs(
+    session: sa.orm.Session, scenario_sk: int, horizon_year: int
+) -> dict[int, dict[str, float | None]]:
+    f = FactTransitionRiskScore
+    latest = (
+        sa.select(f.company_sk, sa.func.max(f.run_sk).label("run_sk"))
+        .where(f.scenario_sk == scenario_sk, f.horizon_year == horizon_year)
+        .group_by(f.company_sk)
+        .subquery()
+    )
+    rows = session.execute(
+        sa.select(f.company_sk, f.sub_score_policy, f.sub_score_tech, f.sub_score_market).join(
+            latest,
+            sa.and_(f.company_sk == latest.c.company_sk, f.run_sk == latest.c.run_sk),
+        )
+    ).all()
+    return {
+        company_sk: {
+            "policy": _opt_float(policy),
+            "tech": _opt_float(tech),
+            "market": _opt_float(market),
+        }
+        for company_sk, policy, tech, market in rows
+    }
+
+
+@task
+def score_explanation(scenario_name: str, horizon_year: int) -> int:
+    logger = get_run_logger()
+    written = 0
+
+    with session_scope() as session:
+        scenario_sk = _scenario_sk(session, scenario_name)
+        if scenario_sk is None:
+            return 0
+
+        run_sk = start_model_run(
+            session,
+            model_name=EXPLANATION_MODEL_NAME,
+            model_version=EXPLANATION_MODEL_VERSION,
+            hyperparams={"horizon_year": horizon_year, "method": "deterministic_template"},
+        )
+
+        physical = _latest_bands(session, FactPhysicalRiskScore, scenario_sk, horizon_year)
+        transition = _latest_bands(session, FactTransitionRiskScore, scenario_sk, horizon_year)
+        coverage = _latest_physical_coverage(session, scenario_sk, horizon_year)
+        subs = _latest_transition_subs(session, scenario_sk, horizon_year)
+        names = dict(session.execute(sa.select(DimCompany.company_sk, DimCompany.name)).all())
+
+        for company_sk in sorted(set(physical) | set(transition)):
+            phys = physical.get(company_sk)
+            trans = transition.get(company_sk)
+            composite = compose_score(phys, trans) if phys and trans else None
+            narrative = build_narrative(
+                company_name=names.get(company_sk, str(company_sk)),
+                scenario=scenario_name,
+                horizon_year=horizon_year,
+                physical=phys,
+                transition=trans,
+                composite=composite,
+                sub_scores=subs.get(company_sk, {}),
+                coverage_pct=coverage.get(company_sk, 0.0),
+            )
+            session.add(
+                FactScoreExplanation(
+                    company_sk=company_sk,
+                    scenario_sk=scenario_sk,
+                    horizon_year=horizon_year,
+                    run_sk=run_sk,
+                    narrative_md=narrative.text,
+                    drivers=narrative.drivers,
+                    sources=[],
+                )
+            )
+            written += 1
+
+    logger.info(
+        "score_explanation: %d narrativas (cenário=%s h=%s)", written, scenario_name, horizon_year
+    )
+    return written
+
+
 @flow(name="compute-scores")
 def compute_scores_flow(
     scenario_name: str = "historical",
@@ -234,9 +345,11 @@ def compute_scores_flow(
         physical = score_physical(scenario_name, h)
         transition = score_transition(scenario_name, h)
         composite = score_composite(scenario_name, h)
+        explanation = score_explanation(scenario_name, h)
         result[str(h)] = {
             "physical": physical,
             "transition": transition,
             "composite": composite,
+            "explanation": explanation,
         }
     return result

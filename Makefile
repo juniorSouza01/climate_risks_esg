@@ -8,6 +8,7 @@ PG_HOST       ?= localhost
 PG_PORT       ?= 5432
 PYTHON        ?= python3.11
 UV            ?= uv
+API_PORT      ?= 8001
 
 # ---- Help ----------------------------------------------------------------
 .PHONY: help
@@ -76,8 +77,8 @@ check: lint typecheck test ## CI local: lint + types + tests
 
 # ---- API / Frontend ------------------------------------------------------
 .PHONY: api frontend
-api: ## Sobe FastAPI em :8000 (placeholder)
-	$(UV) run uvicorn climate_esg.api.main:app --reload --host 0.0.0.0 --port 8000
+api: ## Sobe FastAPI em :$(API_PORT)
+	$(UV) run uvicorn climate_esg.api.main:app --reload --host 0.0.0.0 --port $(API_PORT)
 
 frontend: ## Sobe Vite dev server (depois de F1)
 	cd src/frontend && npm run dev
