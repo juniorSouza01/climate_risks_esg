@@ -29,6 +29,7 @@ from climate_esg.ingestion.netcdf_loader import (
     open_netcdf,
 )
 from climate_esg.modeling.climate_indices import nearest_point_monthly
+from climate_esg.quality.checks import validate_indicator_rows
 from climate_esg.utils.storage import cmip6_bronze_path, cmip6_silver_path, ensure_dir
 
 if TYPE_CHECKING:
@@ -285,6 +286,7 @@ def materialize_indicators(promoted: list[dict[str, str]]) -> int:
                     series = nearest_point_monthly(
                         da, float(asset.latitude), float(asset.longitude)
                     )
+                    validate_indicator_rows(series)
                     for date_sk, value in series:
                         if date_sk not in valid_date_sks:
                             dropped_out_of_calendar += 1

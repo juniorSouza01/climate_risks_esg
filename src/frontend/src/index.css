@@ -378,6 +378,37 @@ select {
   font-size: 12px;
 }
 
+.narrative {
+  font-size: 14px;
+  line-height: 1.65;
+}
+
+.narrative-p {
+  margin: 4px 0;
+}
+
+.narrative-li {
+  margin: 2px 0 2px 6px;
+  color: var(--text);
+}
+
+.narrative strong {
+  color: #fff;
+}
+
+.fin-grid {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  align-items: baseline;
+}
+
+.fin-value {
+  font-size: 34px;
+  font-weight: 700;
+  color: var(--red);
+}
+
 .footer {
   margin-top: 30px;
   color: var(--muted);

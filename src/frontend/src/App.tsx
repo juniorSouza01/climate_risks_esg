@@ -1,8 +1,17 @@
 import { useEffect, useMemo, useState } from "react";
-import { api, type Asset, type Company, type CompanyScores, type ScoreEntry } from "./api";
+import {
+  api,
+  type Asset,
+  type Company,
+  type CompanyScores,
+  type Explanation,
+  type Financial,
+  type ScoreEntry,
+} from "./api";
 import { AssetMap } from "./components/AssetMap";
 import { CompareChart, type CompareRow } from "./components/CompareChart";
 import { Heatmap } from "./components/Heatmap";
+import { Narrative } from "./components/Narrative";
 import { ScoreCard } from "./components/ScoreCard";
 import { SubScores } from "./components/SubScores";
 import { fmtDate } from "./components/util";
@@ -11,6 +20,9 @@ export default function App() {
   const [companies, setCompanies] = useState<Company[]>([]);
   const [scoresById, setScoresById] = useState<Record<number, CompanyScores>>({});
   const [assets, setAssets] = useState<Asset[]>([]);
+  const [explanations, setExplanations] = useState<Explanation[]>([]);
+  const [financial, setFinancial] = useState<Financial[]>([]);
+  const [exposureByAsset, setExposureByAsset] = useState<Record<number, number>>({});
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [scenario, setScenario] = useState<string>("");
   const [horizon, setHorizon] = useState<number | null>(null);
@@ -41,7 +53,27 @@ export default function App() {
 
   useEffect(() => {
     if (selectedId == null) return;
-    api.assets(selectedId).then(setAssets).catch(() => setAssets([]));
+    api.explanations(selectedId).then(setExplanations).catch(() => setExplanations([]));
+    api.financial(selectedId).then(setFinancial).catch(() => setFinancial([]));
+    (async () => {
+      try {
+        const a = await api.assets(selectedId);
+        setAssets(a);
+        const exposure: Record<number, number> = {};
+        await Promise.all(
+          a.map(async (asset) => {
+            const hz = await api.hazards(asset.asset_sk);
+            if (hz.length > 0) {
+              exposure[asset.asset_sk] = Math.max(...hz.map((h) => h.exposure_normalized));
+            }
+          }),
+        );
+        setExposureByAsset(exposure);
+      } catch {
+        setAssets([]);
+        setExposureByAsset({});
+      }
+    })();
   }, [selectedId]);
 
   const scenarios = useMemo(
@@ -63,6 +95,11 @@ export default function App() {
     scoresById[id]?.scores.find((e) => e.scenario === scenario && e.horizon_year === horizon);
 
   const selected = selectedId != null ? entryFor(selectedId) : undefined;
+  const selectedExplanation =
+    explanations.find((e) => e.scenario === scenario && e.horizon_year === horizon)
+      ?.narrative_md ?? null;
+  const selectedFinancial =
+    financial.find((f) => f.scenario === scenario && f.horizon_year === horizon) ?? null;
 
   const compareData: CompareRow[] = companies.map((c) => {
     const e = entryFor(c.company_sk);
@@ -176,13 +213,34 @@ export default function App() {
           )}
 
           <section className="panel">
-            <h3>Decomposição do risco de transição — {selectedCompany?.name ?? "—"}</h3>
-            <SubScores detail={selected?.transition_detail ?? null} />
+            <h3>Explicação do score — {selectedCompany?.name ?? "—"}</h3>
+            <Narrative markdown={selectedExplanation} />
           </section>
 
+          <div className="cards">
+            <section className="panel">
+              <h3>Decomposição do risco de transição</h3>
+              <SubScores detail={selected?.transition_detail ?? null} />
+            </section>
+            <section className="panel">
+              <h3>Impacto financeiro projetado (DCF · NGFS)</h3>
+              {selectedFinancial ? (
+                <div className="fin-grid">
+                  <span className="fin-value">{selectedFinancial.dcf_adjustment_pct.toFixed(1)}%</span>
+                  <span className="muted">
+                    ajuste no valor projetado · faixa {selectedFinancial.band_low_pct.toFixed(1)}% a{" "}
+                    {selectedFinancial.band_high_pct.toFixed(1)}%
+                  </span>
+                </div>
+              ) : (
+                <div className="muted">Sem projeção financeira neste cenário.</div>
+              )}
+            </section>
+          </div>
+
           <section className="panel">
-            <h3>Ativos de {selectedCompany?.name ?? "—"}</h3>
-            <AssetMap assets={assets} />
+            <h3>Ativos de {selectedCompany?.name ?? "—"} (cor = exposição a hazard)</h3>
+            <AssetMap assets={assets} exposureByAsset={exposureByAsset} />
           </section>
 
           <section className="panel">

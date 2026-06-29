@@ -247,15 +247,35 @@ class FactTransitionRiskScore(Base):
     )
 
 
+class FactFinancialImpact(Base):
+    """Impacto financeiro projetado (DCF ajustado por cenário NGFS)."""
+
+    __tablename__ = "fact_financial_impact"
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    company_sk: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("dim_company.company_sk"), index=True
+    )
+    scenario_sk: Mapped[int] = mapped_column(
+        Integer, ForeignKey("dim_scenario.scenario_sk"), index=True
+    )
+    horizon_year: Mapped[int] = mapped_column(Integer)
+    run_sk: Mapped[int] = mapped_column(BigInteger, ForeignKey("dim_model_run.run_sk"))
+    dcf_adjustment_pct: Mapped[float] = mapped_column(Numeric(6, 2))
+    band_low_pct: Mapped[float] = mapped_column(Numeric(6, 2))
+    band_high_pct: Mapped[float] = mapped_column(Numeric(6, 2))
+    computed_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+
 class FactHazardExposure(Base):
     """Exposição normalizada por ativo × hazard × cenário × horizonte."""
 
     __tablename__ = "fact_hazard_exposure"
 
     id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
-    asset_sk: Mapped[int] = mapped_column(
-        BigInteger, ForeignKey("dim_asset.asset_sk"), index=True
-    )
+    asset_sk: Mapped[int] = mapped_column(BigInteger, ForeignKey("dim_asset.asset_sk"), index=True)
     hazard_type: Mapped[str] = mapped_column(String(40), index=True)
     scenario_sk: Mapped[int] = mapped_column(
         Integer, ForeignKey("dim_scenario.scenario_sk"), index=True

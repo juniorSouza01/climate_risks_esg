@@ -49,7 +49,10 @@ db-shell: ## Abre psql no database
 	psql -h $(PG_HOST) -p $(PG_PORT) -U $(PG_USER) -d $(PG_DB)
 
 # ---- Pipelines (Prefect 3) ----------------------------------------------
-.PHONY: prefect-server prefect-worker
+.PHONY: scores prefect-server prefect-worker
+scores: ## Recalcula scores (exposição/físico/transição/composto/explicação/financeiro) sem Prefect
+	$(UV) run python -m pipelines.flows.compute_scores
+
 prefect-server: ## Sobe Prefect server local em :4200
 	$(UV) run prefect server start
 

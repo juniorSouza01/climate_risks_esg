@@ -53,6 +53,32 @@ export interface Asset {
   state: string | null;
 }
 
+export interface Hazard {
+  hazard_type: string;
+  scenario: string;
+  horizon_year: number;
+  exposure_normalized: number;
+  run_sk: number;
+}
+
+export interface Explanation {
+  scenario: string;
+  horizon_year: number;
+  narrative_md: string;
+  drivers: Record<string, unknown> | null;
+  run_sk: number;
+  computed_at: string;
+}
+
+export interface Financial {
+  scenario: string;
+  horizon_year: number;
+  dcf_adjustment_pct: number;
+  band_low_pct: number;
+  band_high_pct: number;
+  run_sk: number;
+}
+
 async function getJson<T>(url: string): Promise<T> {
   const resp = await fetch(url);
   if (!resp.ok) {
@@ -65,4 +91,7 @@ export const api = {
   companies: () => getJson<Company[]>("/v1/companies"),
   scores: (id: number) => getJson<CompanyScores>(`/v1/companies/${id}/scores`),
   assets: (id: number) => getJson<Asset[]>(`/v1/companies/${id}/assets`),
+  explanations: (id: number) => getJson<Explanation[]>(`/v1/companies/${id}/explanations`),
+  financial: (id: number) => getJson<Financial[]>(`/v1/companies/${id}/financial`),
+  hazards: (assetId: number) => getJson<Hazard[]>(`/v1/assets/${assetId}/hazards`),
 };

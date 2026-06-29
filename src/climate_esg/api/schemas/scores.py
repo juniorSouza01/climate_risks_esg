@@ -69,6 +69,14 @@ class ExplanationOut(BaseModel):
     computed_at: str
 
 
+class HazardOut(BaseModel):
+    hazard_type: str
+    scenario: str
+    horizon_year: int
+    exposure_normalized: float
+    run_sk: int
+
+
 class PortfolioCompany(BaseModel):
     company_sk: int
     name: str
@@ -81,3 +89,26 @@ class PortfolioOut(BaseModel):
     n_companies: int
     avg_composite: float | None = None
     companies: list[PortfolioCompany]
+
+
+class FinancialOut(BaseModel):
+    scenario: str
+    horizon_year: int
+    dcf_adjustment_pct: float
+    band_low_pct: float
+    band_high_pct: float
+    run_sk: int
+
+
+class RunOut(BaseModel):
+    run_sk: int
+    model_name: str
+    model_version: str
+    code_commit: str | None = None
+    created_at: str
+
+
+class ModelCardOut(BaseModel):
+    run_sk: int
+    markdown: str
+    fact_counts: dict[str, int]

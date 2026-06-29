@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import defaultdict
 from typing import Any
 
 import sqlalchemy as sa
@@ -12,12 +13,16 @@ from climate_esg.db.models import (
     DimCompany,
     DimScenario,
     FactClimateIndicator,
+    FactFinancialImpact,
+    FactHazardExposure,
     FactPhysicalRiskScore,
     FactScoreExplanation,
     FactTransitionRiskScore,
 )
+from climate_esg.geospatial.exposure import asset_hazard_exposures
 from climate_esg.governance.lineage import start_model_run
 from climate_esg.modeling.explanation import build_narrative
+from climate_esg.modeling.financial_impact import compute_financial_impact
 from climate_esg.modeling.physical_config import (
     HAZARD_WEIGHTS,
     PHYSICAL_MODEL_NAME,
@@ -32,9 +37,23 @@ from climate_esg.modeling.transition_config import (
     TRANSITION_MODEL_VERSION,
 )
 from climate_esg.modeling.transition_risk import compute_transition_score
+from climate_esg.quality.checks import assert_score_jump, validate_score_rows
 
 EXPLANATION_MODEL_NAME = "score_explanation"
 EXPLANATION_MODEL_VERSION = "0.1.0"
+HAZARD_EXPOSURE_MODEL_NAME = "hazard_exposure"
+HAZARD_EXPOSURE_MODEL_VERSION = "0.1.0"
+FINANCIAL_MODEL_NAME = "financial_dcf"
+FINANCIAL_MODEL_VERSION = "0.1.0"
+
+
+def _flow_logger() -> Any:
+    import logging
+
+    try:
+        return get_run_logger()
+    except Exception:
+        return logging.getLogger("climate_esg.compute_scores")
 
 
 def _scenario_sk(session: sa.orm.Session, scenario_name: str) -> int | None:
@@ -43,9 +62,25 @@ def _scenario_sk(session: sa.orm.Session, scenario_name: str) -> int | None:
     )
 
 
+def _previous_score(
+    session: sa.orm.Session, table: Any, company_sk: int, scenario_sk: int, horizon_year: int
+) -> float | None:
+    value = session.scalar(
+        sa.select(table.score_0_100)
+        .where(
+            table.company_sk == company_sk,
+            table.scenario_sk == scenario_sk,
+            table.horizon_year == horizon_year,
+        )
+        .order_by(table.run_sk.desc())
+        .limit(1)
+    )
+    return float(value) if value is not None else None
+
+
 @task
 def score_physical(scenario_name: str, horizon_year: int) -> int:
-    logger = get_run_logger()
+    logger = _flow_logger()
     scored = 0
 
     with session_scope() as session:
@@ -105,6 +140,22 @@ def score_physical(scenario_name: str, horizon_year: int) -> int:
                 )
                 continue
 
+            validate_score_rows(
+                [
+                    {
+                        "score_0_100": result.band.central,
+                        "band_low": result.band.low,
+                        "band_high": result.band.high,
+                    }
+                ]
+            )
+            assert_score_jump(
+                _previous_score(
+                    session, FactPhysicalRiskScore, company_sk, scenario_sk, horizon_year
+                ),
+                result.band.central,
+            )
+
             session.add(
                 FactPhysicalRiskScore(
                     company_sk=company_sk,
@@ -128,7 +179,7 @@ def score_physical(scenario_name: str, horizon_year: int) -> int:
 
 @task
 def score_transition(scenario_name: str, horizon_year: int) -> int:
-    logger = get_run_logger()
+    logger = _flow_logger()
     scored = 0
 
     with session_scope() as session:
@@ -146,6 +197,21 @@ def score_transition(scenario_name: str, horizon_year: int) -> int:
 
         for company_sk, inp in COMPANY_TRANSITION_INPUTS.items():
             result = compute_transition_score(inp.policy, inp.tech, inp.market)
+            validate_score_rows(
+                [
+                    {
+                        "score_0_100": result.band.central,
+                        "band_low": result.band.low,
+                        "band_high": result.band.high,
+                    }
+                ]
+            )
+            assert_score_jump(
+                _previous_score(
+                    session, FactTransitionRiskScore, company_sk, scenario_sk, horizon_year
+                ),
+                result.band.central,
+            )
             session.add(
                 FactTransitionRiskScore(
                     company_sk=company_sk,
@@ -196,7 +262,7 @@ def _latest_bands(
 
 @task
 def score_composite(scenario_name: str, horizon_year: int) -> list[dict[str, Any]]:
-    logger = get_run_logger()
+    logger = _flow_logger()
     composed: list[dict[str, Any]] = []
 
     with session_scope() as session:
@@ -281,7 +347,7 @@ def _latest_transition_subs(
 
 @task
 def score_explanation(scenario_name: str, horizon_year: int) -> int:
-    logger = get_run_logger()
+    logger = _flow_logger()
     written = 0
 
     with session_scope() as session:
@@ -335,6 +401,124 @@ def score_explanation(scenario_name: str, horizon_year: int) -> int:
     return written
 
 
+@task
+def score_hazard_exposure(scenario_name: str, horizon_year: int) -> int:
+    logger = _flow_logger()
+    written = 0
+
+    with session_scope() as session:
+        scenario_sk = _scenario_sk(session, scenario_name)
+        if scenario_sk is None:
+            return 0
+
+        run_sk = start_model_run(
+            session,
+            model_name=HAZARD_EXPOSURE_MODEL_NAME,
+            model_version=HAZARD_EXPOSURE_MODEL_VERSION,
+            hyperparams={"horizon_year": horizon_year},
+        )
+
+        rows = session.execute(
+            sa.select(
+                FactClimateIndicator.asset_sk,
+                DimClimateVariable.cf_code,
+                sa.func.avg(FactClimateIndicator.value_mean),
+            )
+            .join(
+                DimClimateVariable,
+                DimClimateVariable.var_sk == FactClimateIndicator.var_sk,
+            )
+            .where(FactClimateIndicator.scenario_sk == scenario_sk)
+            .group_by(FactClimateIndicator.asset_sk, DimClimateVariable.cf_code)
+        ).all()
+
+        by_asset: dict[int, dict[str, float]] = defaultdict(dict)
+        for asset_sk, cf_code, avg_value in rows:
+            if avg_value is not None:
+                by_asset[asset_sk][cf_code] = float(avg_value)
+
+        for asset_sk, var_means in by_asset.items():
+            for hazard, exposure in asset_hazard_exposures(var_means).items():
+                session.add(
+                    FactHazardExposure(
+                        asset_sk=asset_sk,
+                        hazard_type=hazard,
+                        scenario_sk=scenario_sk,
+                        horizon_year=horizon_year,
+                        run_sk=run_sk,
+                        exposure_normalized=round(exposure, 4),
+                    )
+                )
+                written += 1
+
+    logger.info(
+        "score_hazard_exposure: %d exposições (cenário=%s h=%s)",
+        written,
+        scenario_name,
+        horizon_year,
+    )
+    return written
+
+
+@task
+def score_financial(scenario_name: str, horizon_year: int) -> int:
+    logger = _flow_logger()
+    written = 0
+
+    with session_scope() as session:
+        scenario_sk = _scenario_sk(session, scenario_name)
+        if scenario_sk is None:
+            return 0
+
+        run_sk = start_model_run(
+            session,
+            model_name=FINANCIAL_MODEL_NAME,
+            model_version=FINANCIAL_MODEL_VERSION,
+            hyperparams={"horizon_year": horizon_year},
+        )
+
+        physical = _latest_bands(session, FactPhysicalRiskScore, scenario_sk, horizon_year)
+        transition = _latest_bands(session, FactTransitionRiskScore, scenario_sk, horizon_year)
+
+        for company_sk in sorted(set(physical) & set(transition)):
+            composite = compose_score(physical[company_sk], transition[company_sk])
+            impact = compute_financial_impact(composite, scenario=scenario_name)
+            session.add(
+                FactFinancialImpact(
+                    company_sk=company_sk,
+                    scenario_sk=scenario_sk,
+                    horizon_year=horizon_year,
+                    run_sk=run_sk,
+                    dcf_adjustment_pct=impact.dcf_adjustment_pct,
+                    band_low_pct=impact.band_low_pct,
+                    band_high_pct=impact.band_high_pct,
+                )
+            )
+            written += 1
+
+    logger.info(
+        "score_financial: %d empresas (cenário=%s h=%s)", written, scenario_name, horizon_year
+    )
+    return written
+
+
+def compute_all(
+    scenario_name: str = "historical",
+    horizons: tuple[int, ...] = (2030, 2040, 2050),
+) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for h in horizons:
+        result[str(h)] = {
+            "hazard_exposure": score_hazard_exposure.fn(scenario_name, h),
+            "physical": score_physical.fn(scenario_name, h),
+            "transition": score_transition.fn(scenario_name, h),
+            "composite": score_composite.fn(scenario_name, h),
+            "explanation": score_explanation.fn(scenario_name, h),
+            "financial": score_financial.fn(scenario_name, h),
+        }
+    return result
+
+
 @flow(name="compute-scores")
 def compute_scores_flow(
     scenario_name: str = "historical",
@@ -342,14 +526,33 @@ def compute_scores_flow(
 ) -> dict[str, Any]:
     result: dict[str, Any] = {}
     for h in horizons:
+        exposure = score_hazard_exposure(scenario_name, h)
         physical = score_physical(scenario_name, h)
         transition = score_transition(scenario_name, h)
         composite = score_composite(scenario_name, h)
         explanation = score_explanation(scenario_name, h)
+        financial = score_financial(scenario_name, h)
         result[str(h)] = {
+            "hazard_exposure": exposure,
             "physical": physical,
             "transition": transition,
             "composite": composite,
             "explanation": explanation,
+            "financial": financial,
         }
     return result
+
+
+if __name__ == "__main__":
+    import sys
+
+    _scenario = sys.argv[1] if len(sys.argv) > 1 else "historical"
+    _horizons = tuple(int(x) for x in sys.argv[2:]) or (2030, 2040, 2050)
+    _out = compute_all(_scenario, _horizons)
+    print(f"\ncompute_all('{_scenario}', {_horizons}):")
+    for hz, counts in _out.items():
+        print(
+            f"  h={hz}: exposições={counts['hazard_exposure']} físico={counts['physical']} "
+            f"transição={counts['transition']} explicações={counts['explanation']} "
+            f"financeiro={counts['financial']}"
+        )

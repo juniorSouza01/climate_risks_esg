@@ -10,9 +10,21 @@ from climate_esg.api.schemas.scores import (
     CompanyOut,
     CompanyScores,
     ExplanationOut,
+    FinancialOut,
+    HazardOut,
+    ModelCardOut,
     PortfolioOut,
+    RunOut,
 )
-from climate_esg.api.services import company_explanations, company_scores, portfolio
+from climate_esg.api.services import (
+    asset_hazards,
+    company_explanations,
+    company_financial,
+    company_scores,
+    list_model_runs,
+    model_card,
+    portfolio,
+)
 from climate_esg.db.models import DimAsset, DimCompany
 
 router = APIRouter(tags=["companies"])
@@ -52,6 +64,31 @@ def get_explanations(
     if session.get(DimCompany, company_sk) is None:
         raise HTTPException(status_code=404, detail="empresa não encontrada")
     return company_explanations(session, company_sk)
+
+
+@router.get("/companies/{company_sk}/financial", response_model=list[FinancialOut])
+def get_financial(company_sk: int, session: Session = Depends(get_session)) -> list[FinancialOut]:
+    if session.get(DimCompany, company_sk) is None:
+        raise HTTPException(status_code=404, detail="empresa não encontrada")
+    return company_financial(session, company_sk)
+
+
+@router.get("/assets/{asset_sk}/hazards", response_model=list[HazardOut])
+def get_asset_hazards(asset_sk: int, session: Session = Depends(get_session)) -> list[HazardOut]:
+    return asset_hazards(session, asset_sk)
+
+
+@router.get("/runs", response_model=list[RunOut])
+def get_runs(session: Session = Depends(get_session)) -> list[RunOut]:
+    return list_model_runs(session)
+
+
+@router.get("/model-cards/{run_sk}", response_model=ModelCardOut)
+def get_model_card(run_sk: int, session: Session = Depends(get_session)) -> ModelCardOut:
+    card = model_card(session, run_sk)
+    if card is None:
+        raise HTTPException(status_code=404, detail="run não encontrado")
+    return card
 
 
 @router.get("/portfolio", response_model=PortfolioOut)

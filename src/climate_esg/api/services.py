@@ -8,9 +8,13 @@ from sqlalchemy.orm import Session
 from climate_esg.api.schemas.scores import (
     BandOut,
     ExplanationOut,
+    FinancialOut,
+    HazardOut,
+    ModelCardOut,
     PortfolioCompany,
     PortfolioOut,
     RunInfo,
+    RunOut,
     ScoreEntry,
     TransitionDetail,
 )
@@ -18,10 +22,14 @@ from climate_esg.db.models import (
     DimCompany,
     DimModelRun,
     DimScenario,
+    FactFinancialImpact,
+    FactHazardExposure,
     FactPhysicalRiskScore,
     FactScoreExplanation,
     FactTransitionRiskScore,
 )
+from climate_esg.governance.audit import list_runs, run_fact_counts
+from climate_esg.governance.model_cards import build_model_card
 from climate_esg.modeling.scoring import ScoreBand, compose_score
 
 ScoreTable = type[FactPhysicalRiskScore] | type[FactTransitionRiskScore]
@@ -201,6 +209,127 @@ def company_explanations(session: Session, company_sk: int) -> list[ExplanationO
             computed_at=computed.isoformat() if computed is not None else "",
         )
         for _scen, hor, narrative, drivers, run_sk, computed, name in rows
+    ]
+
+
+def company_financial(session: Session, company_sk: int) -> list[FinancialOut]:
+    f = FactFinancialImpact
+    latest = (
+        sa.select(f.scenario_sk, f.horizon_year, sa.func.max(f.run_sk).label("run_sk"))
+        .where(f.company_sk == company_sk)
+        .group_by(f.scenario_sk, f.horizon_year)
+        .subquery()
+    )
+    rows = session.execute(
+        sa.select(
+            f.horizon_year,
+            f.dcf_adjustment_pct,
+            f.band_low_pct,
+            f.band_high_pct,
+            f.run_sk,
+            DimScenario.name,
+        )
+        .where(f.company_sk == company_sk)
+        .join(
+            latest,
+            sa.and_(
+                f.scenario_sk == latest.c.scenario_sk,
+                f.horizon_year == latest.c.horizon_year,
+                f.run_sk == latest.c.run_sk,
+            ),
+        )
+        .join(DimScenario, DimScenario.scenario_sk == f.scenario_sk)
+        .order_by(DimScenario.name, f.horizon_year)
+    ).all()
+    return [
+        FinancialOut(
+            scenario=str(name),
+            horizon_year=int(hor),
+            dcf_adjustment_pct=float(adj),
+            band_low_pct=float(low),
+            band_high_pct=float(high),
+            run_sk=int(run_sk),
+        )
+        for hor, adj, low, high, run_sk, name in rows
+    ]
+
+
+def list_model_runs(session: Session) -> list[RunOut]:
+    return [
+        RunOut(
+            run_sk=r.run_sk,
+            model_name=r.model_name,
+            model_version=r.model_version,
+            code_commit=r.code_commit,
+            created_at=r.created_at.isoformat() if r.created_at is not None else "",
+        )
+        for r in list_runs(session)
+    ]
+
+
+def model_card(session: Session, run_sk: int) -> ModelCardOut | None:
+    run = session.get(DimModelRun, run_sk)
+    if run is None:
+        return None
+    markdown = build_model_card(
+        run_sk=run.run_sk,
+        model_name=run.model_name,
+        model_version=run.model_version,
+        code_commit=run.code_commit,
+        train_data_version=run.train_data_version,
+        hyperparams=run.hyperparams,
+        created_at=run.created_at,
+    )
+    return ModelCardOut(
+        run_sk=run.run_sk,
+        markdown=markdown,
+        fact_counts=run_fact_counts(session, run_sk),
+    )
+
+
+def asset_hazards(session: Session, asset_sk: int) -> list[HazardOut]:
+    f = FactHazardExposure
+    latest = (
+        sa.select(
+            f.hazard_type,
+            f.scenario_sk,
+            f.horizon_year,
+            sa.func.max(f.run_sk).label("run_sk"),
+        )
+        .where(f.asset_sk == asset_sk)
+        .group_by(f.hazard_type, f.scenario_sk, f.horizon_year)
+        .subquery()
+    )
+    rows = session.execute(
+        sa.select(
+            f.hazard_type,
+            f.horizon_year,
+            f.exposure_normalized,
+            f.run_sk,
+            DimScenario.name,
+        )
+        .where(f.asset_sk == asset_sk)
+        .join(
+            latest,
+            sa.and_(
+                f.hazard_type == latest.c.hazard_type,
+                f.scenario_sk == latest.c.scenario_sk,
+                f.horizon_year == latest.c.horizon_year,
+                f.run_sk == latest.c.run_sk,
+            ),
+        )
+        .join(DimScenario, DimScenario.scenario_sk == f.scenario_sk)
+        .order_by(DimScenario.name, f.horizon_year, f.hazard_type)
+    ).all()
+    return [
+        HazardOut(
+            hazard_type=str(hazard),
+            scenario=str(name),
+            horizon_year=int(hor),
+            exposure_normalized=float(exposure),
+            run_sk=int(run_sk),
+        )
+        for hazard, hor, exposure, run_sk, name in rows
     ]
 
 

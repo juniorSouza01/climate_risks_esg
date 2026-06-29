@@ -1,8 +1,14 @@
 import { CircleMarker, MapContainer, TileLayer, Tooltip } from "react-leaflet";
 import type { Asset } from "../api";
-import { avg } from "./util";
+import { avg, severityColor } from "./util";
 
-export function AssetMap({ assets }: { assets: Asset[] }) {
+export function AssetMap({
+  assets,
+  exposureByAsset = {},
+}: {
+  assets: Asset[];
+  exposureByAsset?: Record<number, number>;
+}) {
   const pts = assets.filter(
     (a): a is Asset & { latitude: number; longitude: number } =>
       a.latitude != null && a.longitude != null,
@@ -29,18 +35,27 @@ export function AssetMap({ assets }: { assets: Asset[] }) {
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
           attribution="© OpenStreetMap"
         />
-        {pts.map((p) => (
-          <CircleMarker
-            key={p.asset_sk}
-            center={[p.latitude, p.longitude]}
-            radius={9}
-            pathOptions={{ color: "#38bdf8", fillColor: "#38bdf8", fillOpacity: 0.6 }}
-          >
-            <Tooltip>
-              {(p.name ?? p.asset_type) + " — " + (p.municipality ?? "") + "/" + (p.state ?? "")}
-            </Tooltip>
-          </CircleMarker>
-        ))}
+        {pts.map((p) => {
+          const exposure = exposureByAsset[p.asset_sk];
+          const color = exposure == null ? "#38bdf8" : severityColor(exposure * 100);
+          return (
+            <CircleMarker
+              key={p.asset_sk}
+              center={[p.latitude, p.longitude]}
+              radius={10}
+              pathOptions={{ color, fillColor: color, fillOpacity: 0.65 }}
+            >
+              <Tooltip>
+                {(p.name ?? p.asset_type) +
+                  " — " +
+                  (p.municipality ?? "") +
+                  "/" +
+                  (p.state ?? "") +
+                  (exposure == null ? "" : ` · exposição ${(exposure * 100).toFixed(0)}`)}
+              </Tooltip>
+            </CircleMarker>
+          );
+        })}
       </MapContainer>
     </div>
   );

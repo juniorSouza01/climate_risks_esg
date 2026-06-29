@@ -9,8 +9,11 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from climate_esg.config import REPO_ROOT
+from climate_esg.config import REPO_ROOT, get_settings
 from climate_esg.db.models import DimModelRun
+from climate_esg.logging import get_logger
+
+log = get_logger(__name__)
 
 
 def current_git_commit(repo_root: Path | None = None) -> str | None:
@@ -38,6 +41,30 @@ def hash_data_version(items: Iterable[str], *, length: int = 16) -> str:
     return hashlib.sha256(payload).hexdigest()[:length]
 
 
+def _log_mlflow(
+    run_sk: int,
+    model_name: str,
+    model_version: str,
+    hyperparams: dict[str, Any] | None,
+) -> None:
+    try:
+        import os
+
+        os.environ.setdefault("MLFLOW_ALLOW_FILE_STORE", "true")
+        import mlflow
+
+        mlflow.set_tracking_uri(get_settings().mlflow_tracking_uri)
+        mlflow.set_experiment("climate-esg")
+        with mlflow.start_run(run_name=f"{model_name}-{run_sk}"):
+            mlflow.set_tag("run_sk", str(run_sk))
+            mlflow.log_param("model_name", model_name)
+            mlflow.log_param("model_version", model_version)
+            for key, value in (hyperparams or {}).items():
+                mlflow.log_param(key, value)
+    except Exception as exc:
+        log.warning("mlflow.log.failed", run_sk=run_sk, error=str(exc))
+
+
 def start_model_run(
     session: Session,
     *,
@@ -57,4 +84,5 @@ def start_model_run(
     )
     session.add(run)
     session.flush()  # popula run.run_sk (IDENTITY) sem fechar a transação
+    _log_mlflow(run.run_sk, model_name, model_version, hyperparams)
     return run.run_sk

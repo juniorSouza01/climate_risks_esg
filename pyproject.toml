@@ -137,7 +137,7 @@ module = [
     "xarray.*", "rioxarray.*", "cf_xarray.*", "intake_esm.*",
     "geopandas.*", "shapely.*", "rasterio.*", "pyproj.*", "xclim.*",
     "shap.*", "great_expectations.*", "geoalchemy2.*", "pgvector.*",
-    "mlflow.*", "prefect.*",
+    "mlflow.*", "prefect.*", "pandera.*", "pandas.*",
 ]
 ignore_missing_imports = true
 
