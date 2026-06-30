@@ -178,6 +178,16 @@ class FactClimateIndicator(Base):
     """Indicadores climáticos por ativo × variável × cenário × tempo."""
 
     __tablename__ = "fact_climate_indicator"
+    __table_args__ = (
+        UniqueConstraint(
+            "asset_sk",
+            "var_sk",
+            "scenario_sk",
+            "date_sk",
+            "run_sk",
+            name="uq_fact_climate_indicator_grain",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
     asset_sk: Mapped[int] = mapped_column(BigInteger, ForeignKey("dim_asset.asset_sk"), index=True)
@@ -200,6 +210,15 @@ class FactPhysicalRiskScore(Base):
     """Score físico por empresa × cenário × horizonte × run."""
 
     __tablename__ = "fact_physical_risk_score"
+    __table_args__ = (
+        UniqueConstraint(
+            "company_sk",
+            "scenario_sk",
+            "horizon_year",
+            "run_sk",
+            name="uq_fact_physical_risk_score_grain",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
     company_sk: Mapped[int] = mapped_column(
@@ -224,6 +243,15 @@ class FactTransitionRiskScore(Base):
     """Score de transição. No MVP é soma ponderada (ADR-0004), não XGBoost."""
 
     __tablename__ = "fact_transition_risk_score"
+    __table_args__ = (
+        UniqueConstraint(
+            "company_sk",
+            "scenario_sk",
+            "horizon_year",
+            "run_sk",
+            name="uq_fact_transition_risk_score_grain",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
     company_sk: Mapped[int] = mapped_column(
@@ -251,6 +279,15 @@ class FactFinancialImpact(Base):
     """Impacto financeiro projetado (DCF ajustado por cenário NGFS)."""
 
     __tablename__ = "fact_financial_impact"
+    __table_args__ = (
+        UniqueConstraint(
+            "company_sk",
+            "scenario_sk",
+            "horizon_year",
+            "run_sk",
+            name="uq_fact_financial_impact_grain",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
     company_sk: Mapped[int] = mapped_column(
@@ -273,6 +310,16 @@ class FactHazardExposure(Base):
     """Exposição normalizada por ativo × hazard × cenário × horizonte."""
 
     __tablename__ = "fact_hazard_exposure"
+    __table_args__ = (
+        UniqueConstraint(
+            "asset_sk",
+            "hazard_type",
+            "scenario_sk",
+            "horizon_year",
+            "run_sk",
+            name="uq_fact_hazard_exposure_grain",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
     asset_sk: Mapped[int] = mapped_column(BigInteger, ForeignKey("dim_asset.asset_sk"), index=True)
@@ -297,6 +344,15 @@ class FactScoreExplanation(Base):
     """
 
     __tablename__ = "fact_score_explanation"
+    __table_args__ = (
+        UniqueConstraint(
+            "company_sk",
+            "scenario_sk",
+            "horizon_year",
+            "run_sk",
+            name="uq_fact_score_explanation_grain",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
     company_sk: Mapped[int] = mapped_column(
@@ -313,3 +369,22 @@ class FactScoreExplanation(Base):
     computed_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
+
+
+# ---------------------------------------------------------------------------
+# Cache
+# ---------------------------------------------------------------------------
+
+
+class CacheDossier(Base):
+    """Cache do dossiê computado por chave de busca (TTL via expires_at)."""
+
+    __tablename__ = "cache_dossier"
+
+    query_key: Mapped[str] = mapped_column(String(160), primary_key=True)
+    kind: Mapped[str] = mapped_column(String(20))
+    payload: Mapped[dict[str, Any]] = mapped_column(JSON)
+    computed_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    expires_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True))

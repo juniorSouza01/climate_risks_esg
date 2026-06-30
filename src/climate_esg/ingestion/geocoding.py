@@ -3,11 +3,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-import httpx
+from climate_esg.ingestion.http import get_client
 
 NOMINATIM_URL = "https://nominatim.openstreetmap.org/search"
 BRASILAPI_CNPJ_URL = "https://brasilapi.com.br/api/cnpj/v1/{cnpj}"
-_USER_AGENT = "climate-esg-platform/0.1 (+geocoding)"
 
 
 @dataclass(frozen=True, slots=True)
@@ -71,19 +70,19 @@ def parse_brasilapi_cnpj(payload: dict[str, Any]) -> CompanyAddress:
 
 
 def geocode(query: str, *, timeout: float = 30.0) -> GeocodeResult | None:
-    with httpx.Client(timeout=timeout, headers={"User-Agent": _USER_AGENT}) as client:
-        resp = client.get(NOMINATIM_URL, params={"q": query, "format": "json", "limit": 1})
-        resp.raise_for_status()
-        return parse_nominatim(resp.json())
+    resp = get_client().get(
+        NOMINATIM_URL, params={"q": query, "format": "json", "limit": 1}, timeout=timeout
+    )
+    resp.raise_for_status()
+    return parse_nominatim(resp.json())
 
 
 def cnpj_to_address(cnpj: str, *, timeout: float = 30.0) -> CompanyAddress | None:
-    with httpx.Client(timeout=timeout, headers={"User-Agent": _USER_AGENT}) as client:
-        resp = client.get(BRASILAPI_CNPJ_URL.format(cnpj=only_digits(cnpj)))
-        if resp.status_code == 404:
-            return None
-        resp.raise_for_status()
-        return parse_brasilapi_cnpj(resp.json())
+    resp = get_client().get(BRASILAPI_CNPJ_URL.format(cnpj=only_digits(cnpj)), timeout=timeout)
+    if resp.status_code == 404:
+        return None
+    resp.raise_for_status()
+    return parse_brasilapi_cnpj(resp.json())
 
 
 def geocode_cnpj(cnpj: str, *, timeout: float = 30.0) -> GeocodeResult | None:

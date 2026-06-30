@@ -28,7 +28,7 @@ from climate_esg.db.models import (
     FactScoreExplanation,
     FactTransitionRiskScore,
 )
-from climate_esg.governance.audit import list_runs, run_fact_counts
+from climate_esg.governance.audit import run_fact_counts
 from climate_esg.governance.model_cards import build_model_card
 from climate_esg.modeling.scoring import ScoreBand, compose_score
 
@@ -254,7 +254,10 @@ def company_financial(session: Session, company_sk: int) -> list[FinancialOut]:
     ]
 
 
-def list_model_runs(session: Session) -> list[RunOut]:
+def list_model_runs(session: Session, *, limit: int = 100, offset: int = 0) -> list[RunOut]:
+    rows = session.scalars(
+        sa.select(DimModelRun).order_by(DimModelRun.run_sk.desc()).limit(limit).offset(offset)
+    ).all()
     return [
         RunOut(
             run_sk=r.run_sk,
@@ -263,7 +266,7 @@ def list_model_runs(session: Session) -> list[RunOut]:
             code_commit=r.code_commit,
             created_at=r.created_at.isoformat() if r.created_at is not None else "",
         )
-        for r in list_runs(session)
+        for r in rows
     ]
 
 

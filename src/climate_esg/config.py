@@ -46,6 +46,18 @@ class Settings(BaseSettings):
     esgf_openid: str = ""
     esgf_password: str = ""
 
+    # --- Fontes corporativas ---
+    brapi_token: str = ""
+
+    # --- Pool de conexões DB ---
+    db_pool_size: int = 5
+    db_max_overflow: int = 10
+    db_pool_timeout: int = 30
+    db_pool_recycle: int = 1800
+
+    # --- Cache ---
+    dossier_cache_ttl_s: int = 3600
+
     # --- Logging ---
     log_level: str = "INFO"
 

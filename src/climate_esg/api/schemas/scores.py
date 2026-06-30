@@ -100,6 +100,20 @@ class FinancialOut(BaseModel):
     run_sk: int
 
 
+class DossierOut(BaseModel):
+    query: str
+    kind: str
+    name: str | None = None
+    registry: dict[str, Any] | None = None
+    market: dict[str, Any] | None = None
+    news: list[dict[str, Any]] = []
+    controversy_ratio: float = 0.0
+    sources: list[str] = []
+    errors: list[str] = []
+    fetched_at: str | None = None
+    cached: bool = False
+
+
 class RunOut(BaseModel):
     run_sk: int
     model_name: str

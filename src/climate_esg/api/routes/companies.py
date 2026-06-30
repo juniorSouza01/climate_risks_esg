@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import sqlalchemy as sa
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from climate_esg.api.deps import get_session
@@ -31,8 +31,14 @@ router = APIRouter(tags=["companies"])
 
 
 @router.get("/companies", response_model=list[CompanyOut])
-def list_companies(session: Session = Depends(get_session)) -> list[CompanyOut]:
-    companies = session.scalars(sa.select(DimCompany).order_by(DimCompany.company_sk)).all()
+def list_companies(
+    session: Session = Depends(get_session),
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+) -> list[CompanyOut]:
+    companies = session.scalars(
+        sa.select(DimCompany).order_by(DimCompany.company_sk).limit(limit).offset(offset)
+    ).all()
     return [
         CompanyOut(
             company_sk=c.company_sk,
@@ -79,8 +85,12 @@ def get_asset_hazards(asset_sk: int, session: Session = Depends(get_session)) ->
 
 
 @router.get("/runs", response_model=list[RunOut])
-def get_runs(session: Session = Depends(get_session)) -> list[RunOut]:
-    return list_model_runs(session)
+def get_runs(
+    session: Session = Depends(get_session),
+    limit: int = Query(100, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+) -> list[RunOut]:
+    return list_model_runs(session, limit=limit, offset=offset)
 
 
 @router.get("/model-cards/{run_sk}", response_model=ModelCardOut)
