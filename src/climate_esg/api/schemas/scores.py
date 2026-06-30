@@ -125,6 +125,9 @@ class DossierOut(BaseModel):
     errors: list[str] = []
     fetched_at: str | None = None
     cached: bool = False
+    company_sk: int | None = None
+    ibge_code: str | None = None
+    climate_risk: dict[str, Any] = {}
 
 
 class RunOut(BaseModel):

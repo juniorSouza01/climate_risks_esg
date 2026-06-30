@@ -85,6 +85,7 @@ class DimAsset(Base):
     )
     municipality: Mapped[str | None] = mapped_column(String(120))
     state: Mapped[str | None] = mapped_column(String(2))
+    ibge_code: Mapped[str | None] = mapped_column(String(7), index=True)
     capacity: Mapped[float | None] = mapped_column(Numeric)
     capex_aprox: Mapped[float | None] = mapped_column(Numeric)
     opening_date: Mapped[dt.date | None] = mapped_column(Date)
@@ -375,6 +376,26 @@ class FactScoreExplanation(Base):
 # ---------------------------------------------------------------------------
 # Cache
 # ---------------------------------------------------------------------------
+
+
+class CompanyFinancials(Base):
+    """Indicadores financeiros por empresa × ano fiscal (CVM DFP)."""
+
+    __tablename__ = "company_financials"
+    __table_args__ = (UniqueConstraint("company_sk", "fiscal_year", name="uq_company_financials"),)
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    company_sk: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("dim_company.company_sk"), index=True
+    )
+    fiscal_year: Mapped[int] = mapped_column(Integer)
+    revenue: Mapped[float | None] = mapped_column(Numeric)
+    net_income: Mapped[float | None] = mapped_column(Numeric)
+    cnpj: Mapped[str | None] = mapped_column(String(14))
+    source: Mapped[str] = mapped_column(String(40))
+    computed_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
 
 
 class CacheDossier(Base):

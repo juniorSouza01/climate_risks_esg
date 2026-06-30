@@ -13,6 +13,7 @@ import { CompareChart, type CompareRow } from "./components/CompareChart";
 import { Heatmap } from "./components/Heatmap";
 import { Narrative } from "./components/Narrative";
 import { ScoreCard } from "./components/ScoreCard";
+import { SearchPanel } from "./components/SearchPanel";
 import { SubScores } from "./components/SubScores";
 import { fmtDate } from "./components/util";
 
@@ -133,7 +134,10 @@ export default function App() {
         </div>
       </header>
 
-      {error && <div className="panel">Falha ao carregar a API: {error}. A API está rodando em :8000?</div>}
+      {error && <div className="panel">Falha ao carregar a API: {error}. A API está rodando?</div>}
+
+      <SearchPanel />
+
 
       <div className="controls">
         <div className="field">

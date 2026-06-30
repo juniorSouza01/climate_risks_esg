@@ -5,11 +5,14 @@ import re
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
+import sqlalchemy as sa
 from sqlalchemy.orm import Session
 
-from climate_esg.db.models import CacheDossier
+from climate_esg.db.models import CacheDossier, DimCompany
+from climate_esg.ingestion.adaptabrasil import municipality_risk
 from climate_esg.ingestion.geocoding import BRASILAPI_CNPJ_URL, only_digits
 from climate_esg.ingestion.http import get_client
+from climate_esg.ingestion.ibge import resolve_ibge_code
 from climate_esg.ingestion.market_data import MarketData, fetch_market_data
 from climate_esg.ingestion.news_collector import Article, controversy_ratio, fetch_news
 
@@ -29,6 +32,9 @@ class Dossier:
     errors: list[str] = field(default_factory=list)
     fetched_at: str | None = None
     cached: bool = False
+    company_sk: int | None = None
+    ibge_code: str | None = None
+    climate_risk: dict[str, Any] = field(default_factory=dict)
 
 
 def classify_query(query: str) -> str:
@@ -112,6 +118,20 @@ def build_dossier(query: str, *, max_news: int = 25) -> Dossier:
     except Exception as exc:
         dossier.errors.append(f"gdelt: {exc}")
 
+    if dossier.registry:
+        municipio = dossier.registry.get("municipio")
+        uf = dossier.registry.get("uf")
+        if municipio and uf:
+            try:
+                ibge = resolve_ibge_code(str(municipio), str(uf))
+                if ibge:
+                    dossier.ibge_code = ibge
+                    dossier.climate_risk = municipality_risk(ibge)
+                    if dossier.climate_risk:
+                        dossier.sources.append("adaptabrasil")
+            except Exception as exc:
+                dossier.errors.append(f"adaptabrasil: {exc}")
+
     if dossier.name is None:
         dossier.name = query
     return dossier
@@ -125,6 +145,22 @@ def normalize_key(query: str) -> str:
     if _TICKER_RE.match(s.upper()):
         return f"ticker:{s.upper()}"
     return "name:" + re.sub(r"\s+", "-", s.lower())
+
+
+def _resolve_company_sk(session: Session, query: str, dossier: Dossier) -> int | None:
+    if dossier.kind == "ticker":
+        sk = session.scalar(
+            sa.select(DimCompany.company_sk).where(DimCompany.ticker == query.strip().upper())
+        )
+        if sk is not None:
+            return int(sk)
+    if dossier.name:
+        sk = session.scalar(
+            sa.select(DimCompany.company_sk).where(DimCompany.name.ilike(dossier.name))
+        )
+        if sk is not None:
+            return int(sk)
+    return None
 
 
 def get_or_build_dossier(
@@ -141,6 +177,7 @@ def get_or_build_dossier(
 
     dossier = build_dossier(query, max_news=max_news)
     dossier.fetched_at = now.isoformat()
+    dossier.company_sk = _resolve_company_sk(session, query, dossier)
     payload = asdict(dossier)
     session.merge(
         CacheDossier(

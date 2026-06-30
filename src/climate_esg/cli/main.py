@@ -44,6 +44,32 @@ def ingest_b3_universe_cmd(
     console.print(f"[bold green]{added} empresas adicionadas ao universo B3.[/bold green]")
 
 
+@ingest_app.command("cvm-financials", help="Ingere receita/lucro do DFP da CVM e casa por nome.")
+def ingest_cvm_financials_cmd(
+    year: int = typer.Option(..., help="Ano fiscal do DFP (ex.: 2023)."),
+) -> None:
+    configure_logging()
+    from climate_esg.db.base import session_scope
+    from climate_esg.ingestion.cvm import ingest_cvm_financials
+
+    with session_scope() as session:
+        matched = ingest_cvm_financials(session, year)
+    console.print(f"[bold green]{matched} empresas com financeiro CVM {year}.[/bold green]")
+
+
+@ingest_app.command(
+    "adaptabrasil", help="Ingere risco municipal (enchente/deslizamento) do AdaptaBrasil."
+)
+def ingest_adaptabrasil_cmd() -> None:
+    configure_logging()
+    from climate_esg.db.base import session_scope
+    from climate_esg.ingestion.adaptabrasil import ingest_adaptabrasil_exposure
+
+    with session_scope() as session:
+        written = ingest_adaptabrasil_exposure(session)
+    console.print(f"[bold green]{written} exposições AdaptaBrasil gravadas.[/bold green]")
+
+
 @geo_app.command("locate", help="Geocodifica uma consulta livre via Nominatim/OSM.")
 def geo_locate(
     query: str = typer.Argument(..., help="Ex.: 'Joinville, SC, Brasil'"),
@@ -103,6 +129,36 @@ def geo_refresh_assets() -> None:
             updated += 1
             console.print(f"[green]{name}[/green] → {result.latitude:.4f}, {result.longitude:.4f}")
     console.print(f"[bold]{updated} ativos atualizados.[/bold]")
+
+
+@geo_app.command(
+    "resolve-ibge", help="Preenche dim_asset.ibge_code via API do IBGE (município+UF)."
+)
+def geo_resolve_ibge() -> None:
+    configure_logging()
+    import sqlalchemy as sa
+
+    from climate_esg.db.base import session_scope
+    from climate_esg.db.models import DimAsset
+    from climate_esg.ingestion.ibge import resolve_ibge_code
+
+    updated = 0
+    with session_scope() as session:
+        rows = session.execute(
+            sa.select(DimAsset.asset_sk, DimAsset.municipality, DimAsset.state)
+        ).all()
+        for asset_sk, municipality, state in rows:
+            if not municipality or not state:
+                continue
+            code = resolve_ibge_code(municipality, state)
+            if code is None:
+                continue
+            session.execute(
+                sa.update(DimAsset).where(DimAsset.asset_sk == asset_sk).values(ibge_code=code)
+            )
+            updated += 1
+            console.print(f"[green]{municipality}/{state}[/green] → IBGE {code}")
+    console.print(f"[bold]{updated} ativos com IBGE resolvido.[/bold]")
 
 
 @db_app.command("seed")

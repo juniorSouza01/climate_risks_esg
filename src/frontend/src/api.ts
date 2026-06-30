@@ -79,6 +79,36 @@ export interface Financial {
   run_sk: number;
 }
 
+export interface Dossier {
+  query: string;
+  kind: string;
+  name: string | null;
+  registry: Record<string, unknown> | null;
+  market: Record<string, unknown> | null;
+  news: { title: string; url: string; domain: string; seendate: string }[];
+  controversy_ratio: number;
+  sources: string[];
+  errors: string[];
+  fetched_at: string | null;
+  cached: boolean;
+  company_sk: number | null;
+  ibge_code: string | null;
+  climate_risk: Record<string, { value: number; label: string }>;
+}
+
+export interface Peer {
+  company_sk: number;
+  name: string;
+  distance: number;
+}
+
+export interface Anomaly {
+  company_sk: number;
+  name: string;
+  score: number;
+  is_outlier: boolean;
+}
+
 async function getJson<T>(url: string): Promise<T> {
   const resp = await fetch(url);
   if (!resp.ok) {
@@ -94,4 +124,7 @@ export const api = {
   explanations: (id: number) => getJson<Explanation[]>(`/v1/companies/${id}/explanations`),
   financial: (id: number) => getJson<Financial[]>(`/v1/companies/${id}/financial`),
   hazards: (assetId: number) => getJson<Hazard[]>(`/v1/assets/${assetId}/hazards`),
+  search: (q: string) => getJson<Dossier>(`/v1/search?q=${encodeURIComponent(q)}`),
+  peers: (id: number) => getJson<Peer[]>(`/v1/companies/${id}/peers`),
+  anomaly: (id: number) => getJson<Anomaly | null>(`/v1/companies/${id}/anomaly`),
 };
