@@ -57,6 +57,7 @@ class DimCompany(Base):
     country: Mapped[str | None] = mapped_column(String(2))
     is_listed: Mapped[bool] = mapped_column(Boolean, default=False)
     market_cap_band: Mapped[str | None] = mapped_column(String(20))
+    market_cap: Mapped[float | None] = mapped_column(Numeric)
     validity_from: Mapped[dt.date] = mapped_column(Date)
     validity_to: Mapped[dt.date | None] = mapped_column(Date, nullable=True)
 

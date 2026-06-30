@@ -69,6 +69,19 @@ class ExplanationOut(BaseModel):
     computed_at: str
 
 
+class PeerOut(BaseModel):
+    company_sk: int
+    name: str
+    distance: float
+
+
+class AnomalyOut(BaseModel):
+    company_sk: int
+    name: str
+    score: float
+    is_outlier: bool
+
+
 class HazardOut(BaseModel):
     hazard_type: str
     scenario: str

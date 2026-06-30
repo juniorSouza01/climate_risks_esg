@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from climate_esg.api.deps import get_session
 from climate_esg.api.schemas.scores import (
+    AnomalyOut,
     AssetOut,
     CompanyOut,
     CompanyScores,
@@ -13,6 +14,7 @@ from climate_esg.api.schemas.scores import (
     FinancialOut,
     HazardOut,
     ModelCardOut,
+    PeerOut,
     PortfolioOut,
     RunOut,
 )
@@ -26,6 +28,8 @@ from climate_esg.api.services import (
     portfolio,
 )
 from climate_esg.db.models import DimAsset, DimCompany
+from climate_esg.modeling.anomaly import company_anomaly
+from climate_esg.modeling.peers import nearest_peers
 
 router = APIRouter(tags=["companies"])
 
@@ -111,6 +115,35 @@ def get_portfolio(
     if result is None:
         raise HTTPException(status_code=404, detail="cenário não encontrado")
     return result
+
+
+@router.get("/companies/{company_sk}/peers", response_model=list[PeerOut])
+def get_peers(
+    company_sk: int,
+    session: Session = Depends(get_session),
+    k: int = Query(5, ge=1, le=20),
+) -> list[PeerOut]:
+    if session.get(DimCompany, company_sk) is None:
+        raise HTTPException(status_code=404, detail="empresa não encontrada")
+    return [
+        PeerOut(company_sk=p.company_sk, name=p.name, distance=p.distance)
+        for p in nearest_peers(session, company_sk, k=k)
+    ]
+
+
+@router.get("/companies/{company_sk}/anomaly", response_model=AnomalyOut | None)
+def get_anomaly(company_sk: int, session: Session = Depends(get_session)) -> AnomalyOut | None:
+    if session.get(DimCompany, company_sk) is None:
+        raise HTTPException(status_code=404, detail="empresa não encontrada")
+    result = company_anomaly(session, company_sk)
+    if result is None:
+        return None
+    return AnomalyOut(
+        company_sk=result.company_sk,
+        name=result.name,
+        score=result.score,
+        is_outlier=result.is_outlier,
+    )
 
 
 @router.get("/companies/{company_sk}/assets", response_model=list[AssetOut])

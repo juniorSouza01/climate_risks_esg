@@ -25,8 +25,23 @@ db_app = typer.Typer(help="Operações de banco (seed, etc.).")
 app.add_typer(db_app, name="db")
 geo_app = typer.Typer(help="Geocodificação de ativos (BrasilAPI + Nominatim).")
 app.add_typer(geo_app, name="geo")
+ingest_app = typer.Typer(help="Ingestão de fontes corporativas.")
+app.add_typer(ingest_app, name="ingest")
 
 console = Console()
+
+
+@ingest_app.command("b3-universe", help="Ingere empresas da B3 (brapi) em dim_company.")
+def ingest_b3_universe_cmd(
+    target: int = typer.Option(200, help="Quantas empresas buscar (paginado)."),
+) -> None:
+    configure_logging()
+    from climate_esg.db.base import session_scope
+    from climate_esg.ingestion.b3_universe import ingest_b3_universe
+
+    with session_scope() as session:
+        added = ingest_b3_universe(session, target)
+    console.print(f"[bold green]{added} empresas adicionadas ao universo B3.[/bold green]")
 
 
 @geo_app.command("locate", help="Geocodifica uma consulta livre via Nominatim/OSM.")
