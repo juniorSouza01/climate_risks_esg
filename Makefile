@@ -78,6 +78,20 @@ test-cov: ## pytest com cobertura
 
 check: lint typecheck test ## CI local: lint + types + tests
 
+# ---- Docker (stack completa) ---------------------------------------------
+.PHONY: up down logs build-images
+up: ## Sobe db+api+frontend via docker compose (build na 1ª vez)
+	docker compose up --build
+
+down: ## Derruba a stack (mantém volume do banco)
+	docker compose down
+
+logs: ## Segue os logs da stack
+	docker compose logs -f
+
+build-images: ## Builda as imagens sem subir
+	docker compose build
+
 # ---- API / Frontend ------------------------------------------------------
 .PHONY: api frontend
 api: ## Sobe FastAPI em :$(API_PORT)
