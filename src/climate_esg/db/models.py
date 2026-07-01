@@ -398,6 +398,27 @@ class CompanyFinancials(Base):
     )
 
 
+class CvmFinancials(Base):
+    """Financeiro da CVM (DFP) por CNPJ × ano — cobre todas as cias abertas, não só a base interna."""
+
+    __tablename__ = "cvm_financials"
+    __table_args__ = (UniqueConstraint("cnpj", "fiscal_year", name="uq_cvm_financials"),)
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    cnpj: Mapped[str] = mapped_column(String(14), index=True)
+    denom: Mapped[str | None] = mapped_column(String(200))
+    denom_norm: Mapped[str | None] = mapped_column(String(200), index=True)
+    fiscal_year: Mapped[int] = mapped_column(Integer)
+    revenue: Mapped[float | None] = mapped_column(Numeric)
+    ebit: Mapped[float | None] = mapped_column(Numeric)
+    ebitda: Mapped[float | None] = mapped_column(Numeric)
+    net_income: Mapped[float | None] = mapped_column(Numeric)
+    source: Mapped[str] = mapped_column(String(40))
+    computed_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+
 class CacheDossier(Base):
     """Cache do dossiê computado por chave de busca (TTL via expires_at)."""
 

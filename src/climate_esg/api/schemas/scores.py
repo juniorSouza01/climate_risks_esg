@@ -128,6 +128,13 @@ class DossierOut(BaseModel):
     company_sk: int | None = None
     ibge_code: str | None = None
     climate_risk: dict[str, Any] = {}
+    climate_meta: dict[str, Any] = {}
+    financials: dict[str, Any] | None = None
+    latitude: float | None = None
+    longitude: float | None = None
+    location_label: str | None = None
+    cross: dict[str, Any] = {}
+    predictions: dict[str, Any] = {}
 
 
 class RunOut(BaseModel):

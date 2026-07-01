@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+import re
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -8,6 +9,43 @@ from climate_esg.config import get_settings
 from climate_esg.ingestion.http import get_client
 
 BRAPI_QUOTE_URL = "https://brapi.dev/api/quote/{ticker}"
+BRAPI_LIST_URL = "https://brapi.dev/api/quote/list"
+
+_TICKER_RE = re.compile(r"^[A-Z]{4}\d{1,2}$")
+
+
+def _brapi_search(query: str, tok: str | None, timeout: float) -> list[str]:
+    params: dict[str, str] = {"search": query}
+    if tok:
+        params["token"] = tok
+    resp = get_client().get(BRAPI_LIST_URL, params=params, timeout=timeout)
+    if resp.status_code in (401, 402, 404):
+        return []
+    resp.raise_for_status()
+    return [str(s.get("stock")) for s in (resp.json().get("stocks") or []) if s.get("stock")]
+
+
+def resolve_ticker(name: str, *, token: str | None = None, timeout: float = 20.0) -> str | None:
+    if not name or len(name.strip()) < 3:
+        return None
+    tok = token if token is not None else get_settings().brapi_token
+    tokens = name.strip().split()
+    queries = [name.strip()]
+    if len(tokens) >= 2:
+        queries.append(" ".join(tokens[:2]))
+    queries.append(tokens[0])
+    seen: set[str] = set()
+    for q in queries:
+        if len(q) < 3 or q in seen:
+            continue
+        seen.add(q)
+        candidates = _brapi_search(q, tok, timeout)
+        exact = [c for c in candidates if _TICKER_RE.match(c)]
+        if exact:
+            return sorted(exact, key=len)[0]
+        if candidates:
+            return candidates[0]
+    return None
 
 
 @dataclass(frozen=True, slots=True)
@@ -57,11 +95,15 @@ def parse_brapi_quote(payload: dict[str, Any]) -> MarketData | None:
 def fetch_market_data(
     ticker: str, *, token: str | None = None, timeout: float = 20.0
 ) -> MarketData | None:
-    params: dict[str, str] = {"range": "1y", "interval": "1d"}
     tok = token if token is not None else get_settings().brapi_token
-    if tok:
-        params["token"] = tok
-    resp = get_client().get(BRAPI_QUOTE_URL.format(ticker=ticker), params=params, timeout=timeout)
+    base: dict[str, str] = {"token": tok} if tok else {}
+    url = BRAPI_QUOTE_URL.format(ticker=ticker)
+
+    # Histórico (range/interval) dá a volatilidade, mas exige plano pago na brapi.
+    # Se o plano recusar (400/402/422), cai para o quote básico (preço/market cap/P-L).
+    resp = get_client().get(url, params={**base, "range": "1y", "interval": "1d"}, timeout=timeout)
+    if resp.status_code in (400, 402, 422):
+        resp = get_client().get(url, params=base, timeout=timeout)
     if resp.status_code in (401, 402, 404):
         return None
     resp.raise_for_status()

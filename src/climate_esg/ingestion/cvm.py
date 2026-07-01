@@ -9,7 +9,7 @@ import pandas as pd
 import sqlalchemy as sa
 from sqlalchemy.orm import Session
 
-from climate_esg.db.models import CompanyFinancials, DimCompany
+from climate_esg.db.models import CompanyFinancials, CvmFinancials, DimCompany
 from climate_esg.ingestion.geocoding import only_digits
 from climate_esg.ingestion.http import get_client
 
@@ -17,14 +17,19 @@ DFP_URL = "https://dados.cvm.gov.br/dados/CIA_ABERTA/DOC/DFP/DADOS/dfp_cia_abert
 
 _STOPWORDS = {"SA", "S", "A", "CIA", "COMPANHIA", "PARTICIPACOES", "PART", "HOLDING"}
 _REVENUE_ACCOUNT = "3.01"
+_EBIT_ACCOUNT = "3.05"
 _NET_INCOME_ACCOUNT = "3.11"
 
 
-def normalize_name(name: str) -> str:
-    stripped = "".join(
-        c for c in unicodedata.normalize("NFKD", name) if not unicodedata.combining(c)
+def _strip_accents(value: Any) -> str:
+    return "".join(
+        c for c in unicodedata.normalize("NFKD", str(value)) if not unicodedata.combining(c)
     ).upper()
-    tokens = [t for t in "".join(ch if ch.isalnum() else " " for ch in stripped).split()]
+
+
+def normalize_name(name: str) -> str:
+    stripped = _strip_accents(name)
+    tokens = "".join(ch if ch.isalnum() else " " for ch in stripped).split()
     kept = [t for t in tokens if t not in _STOPWORDS]
     return " ".join(kept)
 
@@ -34,6 +39,34 @@ def _to_float(value: Any) -> float | None:
         return float(str(value).replace(",", "."))
     except (ValueError, TypeError):
         return None
+
+
+def _scale(escala: Any) -> float:
+    return 1000.0 if "MIL" in _strip_accents(escala) else 1.0
+
+
+def _da_by_cnpj(zf: zipfile.ZipFile) -> dict[str, float]:
+    member = next((n for n in zf.namelist() if "DFC_MI_con" in n), None)
+    if member is None:
+        return {}
+    with zf.open(member) as fh:
+        df = pd.read_csv(fh, sep=";", encoding="latin-1", dtype=str)
+    df = df[df["ORDEM_EXERC"] == "ÚLTIMO"]
+    mask = df["DS_CONTA"].map(
+        lambda s: "DEPRECIA" in _strip_accents(s) or "AMORTIZA" in _strip_accents(s)
+    )
+    df = df[mask]
+    out: dict[str, float] = {}
+    for cnpj_raw, grp in df.groupby("CNPJ_CIA"):
+        latest = grp["DT_REFER"].max()
+        g = grp[grp["DT_REFER"] == latest]
+        total = 0.0
+        for _, row in g.iterrows():
+            v = _to_float(row["VL_CONTA"])
+            if v is not None:
+                total += abs(v) * _scale(row.get("ESCALA_MOEDA"))
+        out[only_digits(str(cnpj_raw))] = total
+    return out
 
 
 def fetch_dfp_financials(year: int, *, timeout: float = 180.0) -> dict[str, dict[str, Any]]:
@@ -47,30 +80,82 @@ def fetch_dfp_financials(year: int, *, timeout: float = 180.0) -> dict[str, dict
         df = pd.read_csv(fh, sep=";", encoding="latin-1", dtype=str)
 
     df = df[df["ORDEM_EXERC"] == "ÚLTIMO"]
+    da_map = _da_by_cnpj(zf)
     out: dict[str, dict[str, Any]] = {}
     for denom, group in df.groupby("DENOM_CIA"):
         latest = group["DT_REFER"].max()
         g = group[group["DT_REFER"] == latest]
+        cnpj = only_digits(str(g.iloc[0]["CNPJ_CIA"]))
+        scale = _scale(g.iloc[0].get("ESCALA_MOEDA"))
 
-        def _acct(code: str, g: pd.DataFrame = g) -> float | None:
+        def _acct(code: str, g: pd.DataFrame = g, scale: float = scale) -> float | None:
             row = g[g["CD_CONTA"] == code]
-            return None if row.empty else _to_float(row.iloc[0]["VL_CONTA"])
+            if row.empty:
+                return None
+            v = _to_float(row.iloc[0]["VL_CONTA"])
+            return None if v is None else v * scale
 
-        out[normalize_name(str(denom))] = {
+        ebit = _acct(_EBIT_ACCOUNT)
+        da = da_map.get(cnpj)
+        ebitda = ebit + da if (ebit is not None and da is not None) else None
+        out[cnpj] = {
+            "cnpj": cnpj,
+            "denom": str(denom)[:200],
+            "denom_norm": normalize_name(str(denom))[:200],
             "revenue": _acct(_REVENUE_ACCOUNT),
+            "ebit": ebit,
+            "ebitda": ebitda,
             "net_income": _acct(_NET_INCOME_ACCOUNT),
-            "cnpj": only_digits(str(g.iloc[0]["CNPJ_CIA"])),
             "fiscal_year": int(str(latest)[:4]),
         }
     return out
 
 
+def _upsert_cvm_all(session: Session, financials: dict[str, dict[str, Any]], year: int) -> int:
+    n = 0
+    for cnpj, rec in financials.items():
+        if not cnpj:
+            continue
+        existing = session.scalar(
+            sa.select(CvmFinancials).where(
+                CvmFinancials.cnpj == cnpj,
+                CvmFinancials.fiscal_year == rec["fiscal_year"],
+            )
+        )
+        if existing is not None:
+            existing.denom = rec["denom"]
+            existing.denom_norm = rec["denom_norm"]
+            existing.revenue = rec["revenue"]
+            existing.ebit = rec["ebit"]
+            existing.ebitda = rec["ebitda"]
+            existing.net_income = rec["net_income"]
+        else:
+            session.add(
+                CvmFinancials(
+                    cnpj=cnpj,
+                    denom=rec["denom"],
+                    denom_norm=rec["denom_norm"],
+                    fiscal_year=rec["fiscal_year"],
+                    revenue=rec["revenue"],
+                    ebit=rec["ebit"],
+                    ebitda=rec["ebitda"],
+                    net_income=rec["net_income"],
+                    source=f"cvm_dfp_{year}",
+                )
+            )
+        n += 1
+    return n
+
+
 def ingest_cvm_financials(session: Session, year: int) -> int:
     financials = fetch_dfp_financials(year)
+    _upsert_cvm_all(session, financials, year)
+
+    by_name = {rec["denom_norm"]: rec for rec in financials.values()}
     companies = session.execute(sa.select(DimCompany.company_sk, DimCompany.name)).all()
     matched = 0
     for company_sk, name in companies:
-        rec = financials.get(normalize_name(str(name)))
+        rec = by_name.get(normalize_name(str(name)))
         if rec is None:
             continue
         existing = session.scalar(

@@ -94,6 +94,60 @@ export interface Dossier {
   company_sk: number | null;
   ibge_code: string | null;
   climate_risk: Record<string, { value: number; label: string }>;
+  climate_meta: {
+    source?: string;
+    scenario?: string;
+    horizon?: number;
+    municipio?: string;
+    uf?: string;
+    ibge?: string;
+    scale?: string;
+  };
+  financials: {
+    revenue: number | null;
+    net_income: number | null;
+    ebit?: number | null;
+    ebitda?: number | null;
+    net_margin?: number | null;
+    ebitda_margin?: number | null;
+    fiscal_year: number;
+    source?: string;
+  } | null;
+  latitude: number | null;
+  longitude: number | null;
+  location_label: string | null;
+  cross: {
+    climate_index?: { value: number; label: string; basis: string };
+    revenue_at_risk?: {
+      pct_low: number;
+      pct_central: number;
+      pct_high: number;
+      brl_low: number;
+      brl_central: number;
+      brl_high: number;
+      basis: string;
+      seal: string;
+    };
+    revenue_percentile?: { value: number; n: number; basis: string };
+    ebitda_margin_percentile?: { value: number; n: number; basis: string };
+    narrative?: string;
+  };
+  predictions: {
+    segment?: {
+      cluster: number;
+      label: string;
+      n_in_cluster: number;
+      n_total: number;
+      basis: string;
+      seal: string;
+    };
+    peers?: {
+      items: { cnpj: string; denom: string; distance: number }[];
+      basis: string;
+      seal: string;
+    };
+    anomaly?: { is_outlier: boolean; score: number; basis: string; seal: string };
+  };
 }
 
 export interface Peer {

@@ -28,8 +28,11 @@ export default function App() {
   const [scenario, setScenario] = useState<string>("");
   const [horizon, setHorizon] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [showPortfolio, setShowPortfolio] = useState(false);
+  const [portfolioLoaded, setPortfolioLoaded] = useState(false);
 
   useEffect(() => {
+    if (!showPortfolio || portfolioLoaded) return;
     (async () => {
       try {
         const cs = await api.companies();
@@ -46,11 +49,12 @@ export default function App() {
           setScenario(first.scenario);
           setHorizon(first.horizon_year);
         }
+        setPortfolioLoaded(true);
       } catch (err) {
         setError(String(err));
       }
     })();
-  }, []);
+  }, [showPortfolio, portfolioLoaded]);
 
   useEffect(() => {
     if (selectedId == null) return;
@@ -138,10 +142,20 @@ export default function App() {
 
       <SearchPanel />
 
+      <div className="portfolio-toggle">
+        <button onClick={() => setShowPortfolio((v) => !v)}>
+          {showPortfolio
+            ? "▾ Ocultar carteira"
+            : "▸ Explorar carteira completa — comparar todas as empresas da base"}
+        </button>
+      </div>
 
-      <div className="controls">
-        <div className="field">
-          <label>Cenário</label>
+      {showPortfolio && (
+        <>
+          {!portfolioLoaded && <div className="panel muted">Carregando carteira…</div>}
+          <div className="controls">
+            <div className="field">
+              <label>Cenário</label>
           <select value={scenario} onChange={(e) => setScenario(e.target.value)}>
             {scenarios.map((s) => (
               <option key={s} value={s}>
@@ -267,6 +281,8 @@ export default function App() {
           </section>
         </main>
       </div>
+        </>
+      )}
 
       <footer className="footer">
         Plataforma de Análise de Riscos Climáticos para ESG · dados CMIP6 EC-Earth3 · scores com
