@@ -48,6 +48,7 @@ class Settings(BaseSettings):
 
     # --- Fontes corporativas ---
     brapi_token: str = ""
+    portal_transparencia_token: str = ""
 
     # --- Pool de conexões DB ---
     db_pool_size: int = 5

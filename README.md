@@ -97,6 +97,28 @@ make check                # ruff + mypy + pytest
 
 ---
 
+## Credenciais e tokens
+
+Todas são **opcionais** — a plataforma sobe e busca empresas **sem nenhuma chave** (BrasilAPI, IBGE, AdaptaBrasil, CVM e GDELT são públicas e sem login). Configure só o que quiser destravar. Copie `.env.example` para `.env` e preencha, ou exporte no ambiente antes do `docker compose up`.
+
+| Token | Para quê | Precisa? | Como obter |
+|---|---|---|---|
+| `BRAPI_TOKEN` | Mercado da B3 (preço, market cap, P/L) via **brapi.dev** | Recomendado | Conta grátis em **https://brapi.dev** → entrar (Google/GitHub/e-mail) → copiar o **token** no painel. Sem ele o bloco de mercado vem vazio/limitado. A **volatilidade anual** exige plano pago da brapi (o histórico de preços é bloqueado no plano grátis). |
+| `PORTAL_TRANSPARENCIA_TOKEN` | **Contratos públicos** (clientes factuais + valores) via Portal da Transparência | Opcional (cadeia de valor) | Grátis com login **gov.br**: acesse **https://portaldatransparencia.gov.br/api-de-dados** → **"Cadastrar e-mail"** → você recebe a chave (`chave-api-dados`). Sem ele, a cadeia de valor mostra só fornecedor-gov (sem login) + sócios (QSA) + cadeia por CNAE. |
+| `ESGF_OPENID` / `ESGF_PASSWORD` | Baixar CMIP6/ESGF quando um nó exigir login | Raramente | A maioria do CMIP6 é **aberta** (o download da F0 funcionou sem credencial). Se precisar, registre uma conta **OpenID** num nó ESGF (ex.: https://esgf-node.llnl.gov, CEDA, DKRZ) e use a URL OpenID + senha. Deixe vazio caso não precise. |
+
+Exemplo de `.env`:
+
+```bash
+BRAPI_TOKEN=seu_token_brapi
+PORTAL_TRANSPARENCIA_TOKEN=sua_chave_gov
+# ESGF_OPENID= / ESGF_PASSWORD=  → deixe vazio (CMIP6 aberto)
+```
+
+No Docker, basta ter as variáveis no ambiente (ou no `.env`) antes de `docker compose up` — elas são repassadas ao serviço `api`.
+
+---
+
 ## API (`/v1`)
 
 | Endpoint | Descrição |
