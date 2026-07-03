@@ -45,6 +45,37 @@ def _scale(escala: Any) -> float:
     return 1000.0 if "MIL" in _strip_accents(escala) else 1.0
 
 
+def _balance_by_cnpj(zf: zipfile.ZipFile) -> dict[str, dict[str, float | None]]:
+    out: dict[str, dict[str, float | None]] = {}
+    for kind, member_key, accounts in (
+        ("bpa", "BPA_con", {"total_assets": ("1",)}),
+        ("bpp", "BPP_con", {"equity": ("2.03",), "gross_debt": ("2.01.04", "2.02.01")}),
+    ):
+        member = next((n for n in zf.namelist() if member_key in n), None)
+        if member is None:
+            continue
+        with zf.open(member) as fh:
+            df = pd.read_csv(fh, sep=";", encoding="latin-1", dtype=str)
+        df = df[df["ORDEM_EXERC"] == "ÚLTIMO"]
+        for cnpj_raw, grp in df.groupby("CNPJ_CIA"):
+            latest = grp["DT_REFER"].max()
+            g = grp[grp["DT_REFER"] == latest]
+            cnpj = only_digits(str(cnpj_raw))
+            rec = out.setdefault(cnpj, {})
+            for field, codes in accounts.items():
+                total: float | None = None
+                for code in codes:
+                    row = g[g["CD_CONTA"] == code]
+                    if row.empty:
+                        continue
+                    v = _to_float(row.iloc[0]["VL_CONTA"])
+                    if v is not None:
+                        scaled = v * _scale(row.iloc[0].get("ESCALA_MOEDA"))
+                        total = scaled if total is None else total + scaled
+                rec[field] = total
+    return out
+
+
 def _da_by_cnpj(zf: zipfile.ZipFile) -> dict[str, float]:
     member = next((n for n in zf.namelist() if "DFC_MI_con" in n), None)
     if member is None:
@@ -81,6 +112,7 @@ def fetch_dfp_financials(year: int, *, timeout: float = 180.0) -> dict[str, dict
 
     df = df[df["ORDEM_EXERC"] == "ÚLTIMO"]
     da_map = _da_by_cnpj(zf)
+    balance = _balance_by_cnpj(zf)
     out: dict[str, dict[str, Any]] = {}
     for denom, group in df.groupby("DENOM_CIA"):
         latest = group["DT_REFER"].max()
@@ -98,6 +130,7 @@ def fetch_dfp_financials(year: int, *, timeout: float = 180.0) -> dict[str, dict
         ebit = _acct(_EBIT_ACCOUNT)
         da = da_map.get(cnpj)
         ebitda = ebit + da if (ebit is not None and da is not None) else None
+        bal = balance.get(cnpj, {})
         out[cnpj] = {
             "cnpj": cnpj,
             "denom": str(denom)[:200],
@@ -106,6 +139,9 @@ def fetch_dfp_financials(year: int, *, timeout: float = 180.0) -> dict[str, dict
             "ebit": ebit,
             "ebitda": ebitda,
             "net_income": _acct(_NET_INCOME_ACCOUNT),
+            "total_assets": bal.get("total_assets"),
+            "equity": bal.get("equity"),
+            "gross_debt": bal.get("gross_debt"),
             "fiscal_year": int(str(latest)[:4]),
         }
     return out
@@ -129,6 +165,9 @@ def _upsert_cvm_all(session: Session, financials: dict[str, dict[str, Any]], yea
             existing.ebit = rec["ebit"]
             existing.ebitda = rec["ebitda"]
             existing.net_income = rec["net_income"]
+            existing.total_assets = rec.get("total_assets")
+            existing.equity = rec.get("equity")
+            existing.gross_debt = rec.get("gross_debt")
         else:
             session.add(
                 CvmFinancials(
@@ -140,6 +179,9 @@ def _upsert_cvm_all(session: Session, financials: dict[str, dict[str, Any]], yea
                     ebit=rec["ebit"],
                     ebitda=rec["ebitda"],
                     net_income=rec["net_income"],
+                    total_assets=rec.get("total_assets"),
+                    equity=rec.get("equity"),
+                    gross_debt=rec.get("gross_debt"),
                     source=f"cvm_dfp_{year}",
                 )
             )

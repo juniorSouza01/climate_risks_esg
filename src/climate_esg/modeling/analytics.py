@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 
 from climate_esg.db.models import CvmFinancials
 
-HAZARD_WEIGHTS = {"enchente": 0.5, "deslizamento": 0.3, "vendaval": 0.1, "seca": 0.1}
+HAZARD_WEIGHTS = {"enchente": 0.40, "deslizamento": 0.25, "seca": 0.35}
 # Sensibilidade da receita à ameaça climática — heurística DECLARADA (placeholder F1),
 # não medição calibrada. Faixa low/central/high da fração de receita exposta por unidade.
 _SENSITIVITY = (0.03, 0.08, 0.15)

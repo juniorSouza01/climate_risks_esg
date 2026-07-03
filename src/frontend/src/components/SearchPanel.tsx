@@ -12,6 +12,7 @@ import {
 import { CompanyAnalytics } from "./CompanyAnalytics";
 import { MiniLocationMap } from "./MiniLocationMap";
 import { Narrative } from "./Narrative";
+import { Relationships } from "./Relationships";
 import { ScoreCard } from "./ScoreCard";
 import { SubScores } from "./SubScores";
 
@@ -225,12 +226,22 @@ export function SearchPanel() {
             <section className="sub-panel">
               <h4>Identificação</h4>
               <dl className="kv">
+                <Kv k="CNPJ" v={S(reg.cnpj)} />
                 <Kv k="Razão social" v={S(reg.razao_social)} />
                 <Kv k="Nome fantasia" v={S(reg.nome_fantasia)} />
                 <Kv
-                  k="CNAE"
+                  k="CNAE principal"
                   v={reg.cnae ? `${S(reg.cnae_codigo)} · ${S(reg.cnae)}` : "—"}
                 />
+                {Array.isArray(reg.cnaes_secundarios) && reg.cnaes_secundarios.length > 0 && (
+                  <Kv
+                    k={`CNAEs secundários (${reg.cnaes_secundarios.length})`}
+                    v={(reg.cnaes_secundarios as { codigo: number; descricao: string }[])
+                      .slice(0, 6)
+                      .map((c) => c.descricao)
+                      .join(" · ")}
+                  />
+                )}
                 <Kv k="Natureza jurídica" v={S(reg.natureza_juridica)} />
                 <Kv k="Capital social" v={fmtMoney(reg.capital_social)} />
                 <Kv k="Início de atividade" v={S(reg.data_inicio_atividade)} />
@@ -319,6 +330,34 @@ export function SearchPanel() {
                     v={fin.net_income != null ? fmtMoney(fin.net_income) : "—"}
                   />
                   <Kv k="Margem líquida" v={netMargin != null ? `${netMargin.toFixed(1)}%` : "—"} />
+                  <Kv
+                    k="Crescimento receita"
+                    v={
+                      fin.revenue_growth != null
+                        ? `${(fin.revenue_growth * 100).toFixed(1)}% a/a`
+                        : "—"
+                    }
+                  />
+                  <Kv
+                    k="Ativos totais"
+                    v={fin.total_assets != null ? fmtMoney(fin.total_assets) : "—"}
+                  />
+                  <Kv
+                    k="Patrimônio líquido"
+                    v={fin.equity != null ? fmtMoney(fin.equity) : "—"}
+                  />
+                  <Kv
+                    k="Dívida bruta"
+                    v={fin.gross_debt != null ? fmtMoney(fin.gross_debt) : "—"}
+                  />
+                  <Kv
+                    k="Dívida/EBITDA"
+                    v={fin.debt_to_ebitda != null ? `${fin.debt_to_ebitda.toFixed(1)}×` : "—"}
+                  />
+                  <Kv
+                    k="ROE"
+                    v={fin.roe != null ? `${(fin.roe * 100).toFixed(1)}%` : "—"}
+                  />
                   <Kv k="Fonte" v={`CVM DFP · ${S(fin.source)}`} />
                 </dl>
               ) : (
@@ -375,6 +414,8 @@ export function SearchPanel() {
           </section>
 
           <CompanyAnalytics dossier={dossier} />
+
+          <Relationships dossier={dossier} />
 
           {dossier.company_sk != null ? (
             <section className="sub-panel analysis">

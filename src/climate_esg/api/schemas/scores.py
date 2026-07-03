@@ -135,6 +135,9 @@ class DossierOut(BaseModel):
     location_label: str | None = None
     cross: dict[str, Any] = {}
     predictions: dict[str, Any] = {}
+    climate_financial: dict[str, Any] = {}
+    relationships: dict[str, Any] | None = None
+    supply_chain: dict[str, Any] = {}
 
 
 class RunOut(BaseModel):

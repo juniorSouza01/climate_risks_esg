@@ -8,8 +8,10 @@ from typing import Any
 import sqlalchemy as sa
 from sqlalchemy.orm import Session
 
+from climate_esg.config import get_settings
 from climate_esg.db.models import CacheDossier, CompanyFinancials, CvmFinancials, DimCompany
 from climate_esg.ingestion.adaptabrasil import municipality_risk
+from climate_esg.ingestion.cnae_value_chain import value_chain
 from climate_esg.ingestion.cvm import normalize_name
 from climate_esg.ingestion.geocoding import (
     BRASILAPI_CNPJ_URL,
@@ -21,7 +23,10 @@ from climate_esg.ingestion.http import get_client
 from climate_esg.ingestion.ibge import resolve_ibge_code
 from climate_esg.ingestion.market_data import MarketData, fetch_market_data, resolve_ticker
 from climate_esg.ingestion.news_collector import Article, controversy_ratio, fetch_news
+from climate_esg.ingestion.procurement import fetch_gov_supplier
 from climate_esg.modeling.analytics import analyze_company
+from climate_esg.modeling.climate_financial import climate_financial_impact
+from climate_esg.modeling.supply_chain import supply_chain_climate_risk
 
 _TICKER_RE = re.compile(r"^[A-Z]{4}\d{1,2}$")
 
@@ -49,6 +54,9 @@ class Dossier:
     location_label: str | None = None
     cross: dict[str, Any] = field(default_factory=dict)
     predictions: dict[str, Any] = field(default_factory=dict)
+    climate_financial: dict[str, Any] = field(default_factory=dict)
+    relationships: dict[str, Any] | None = None
+    supply_chain: dict[str, Any] = field(default_factory=dict)
 
 
 def classify_query(query: str) -> str:
@@ -69,10 +77,16 @@ def _registry(cnpj: str, *, timeout: float = 20.0) -> dict[str, Any] | None:
     resp.raise_for_status()
     p = resp.json()
     return {
+        "cnpj": only_digits(str(p.get("cnpj") or cnpj)),
         "razao_social": p.get("razao_social"),
         "nome_fantasia": p.get("nome_fantasia"),
         "cnae": p.get("cnae_fiscal_descricao"),
         "cnae_codigo": p.get("cnae_fiscal"),
+        "cnaes_secundarios": [
+            {"codigo": c.get("codigo"), "descricao": c.get("descricao")}
+            for c in (p.get("cnaes_secundarios") or [])
+            if c.get("codigo")
+        ],
         "situacao": p.get("descricao_situacao_cadastral"),
         "porte": p.get("porte"),
         "natureza_juridica": p.get("natureza_juridica"),
@@ -193,40 +207,107 @@ def _attach_location(dossier: Dossier) -> None:
 
 
 def _attach_financials(session: Session, dossier: Dossier, cnpj: str | None) -> None:
-    rec: CvmFinancials | None = None
+    rows: list[CvmFinancials] = []
     if cnpj:
-        rec = session.scalar(
-            sa.select(CvmFinancials)
-            .where(CvmFinancials.cnpj == cnpj)
-            .order_by(CvmFinancials.fiscal_year.desc())
-            .limit(1)
+        rows = list(
+            session.scalars(
+                sa.select(CvmFinancials)
+                .where(CvmFinancials.cnpj == cnpj)
+                .order_by(CvmFinancials.fiscal_year.desc())
+            )
         )
-    if rec is None and dossier.name:
-        rec = session.scalar(
-            sa.select(CvmFinancials)
-            .where(CvmFinancials.denom_norm == normalize_name(dossier.name))
-            .order_by(CvmFinancials.fiscal_year.desc())
-            .limit(1)
+    if not rows and dossier.name:
+        rows = list(
+            session.scalars(
+                sa.select(CvmFinancials)
+                .where(CvmFinancials.denom_norm == normalize_name(dossier.name))
+                .order_by(CvmFinancials.fiscal_year.desc())
+            )
         )
-    if rec is None:
+    if not rows:
         return
-    revenue = float(rec.revenue) if rec.revenue is not None else None
-    net_income = float(rec.net_income) if rec.net_income is not None else None
-    ebit = float(rec.ebit) if rec.ebit is not None else None
-    ebitda = float(rec.ebitda) if rec.ebitda is not None else None
+
+    def _f(v: Any) -> float | None:
+        return float(v) if v is not None else None
+
+    rec = rows[0]
+    revenue = _f(rec.revenue)
+    net_income = _f(rec.net_income)
+    ebit = _f(rec.ebit)
+    ebitda = _f(rec.ebitda)
+    total_assets = _f(rec.total_assets)
+    equity = _f(rec.equity)
+    gross_debt = _f(rec.gross_debt)
+
+    history = [
+        {
+            "fiscal_year": int(r.fiscal_year),
+            "revenue": _f(r.revenue),
+            "ebitda": _f(r.ebitda),
+            "net_income": _f(r.net_income),
+        }
+        for r in rows
+    ]
+    prev_revenue = next(
+        (h["revenue"] for h in history[1:] if h["revenue"]), None
+    )
+    revenue_growth = (
+        (revenue - prev_revenue) / prev_revenue
+        if (revenue is not None and prev_revenue)
+        else None
+    )
+
     dossier.financials = {
         "cnpj": rec.cnpj,
         "revenue": revenue,
         "net_income": net_income,
         "ebit": ebit,
         "ebitda": ebitda,
+        "total_assets": total_assets,
+        "equity": equity,
+        "gross_debt": gross_debt,
         "net_margin": (net_income / revenue) if (net_income is not None and revenue) else None,
         "ebitda_margin": (ebitda / revenue) if (ebitda is not None and revenue) else None,
+        "debt_to_ebitda": (gross_debt / ebitda) if (gross_debt is not None and ebitda) else None,
+        "roe": (net_income / equity) if (net_income is not None and equity) else None,
+        "revenue_growth": revenue_growth,
+        "history": history,
         "fiscal_year": int(rec.fiscal_year),
         "source": rec.source,
     }
     if "cvm" not in dossier.sources:
         dossier.sources.append("cvm")
+
+
+def _attach_relationships(dossier: Dossier, cnpj: str | None) -> None:
+    if not cnpj:
+        return
+    reg = dossier.registry or {}
+    rel: dict[str, Any] = {"cnpj": cnpj}
+
+    try:
+        gov = fetch_gov_supplier(cnpj)
+        rel["gov_supplier"] = gov
+        if gov and gov.get("found") and "compras.gov.br" not in dossier.sources:
+            dossier.sources.append("compras.gov.br")
+    except Exception as exc:
+        dossier.errors.append(f"compras_gov: {exc}")
+        rel["gov_supplier"] = None
+
+    socios = reg.get("socios") or []
+    rel["socios"] = (
+        {"items": socios, "count": len(socios), "seal": "factual", "source": "brasilapi/qsa"}
+        if socios
+        else None
+    )
+    rel["value_chain"] = value_chain(reg.get("cnae_codigo"))
+    rel["public_contracts"] = {
+        "available": bool(get_settings().portal_transparencia_token),
+        "reason": "requer PORTAL_TRANSPARENCIA_TOKEN (Portal da Transparência)",
+        "seal": "previsto",
+        "source": "portaldatransparencia",
+    }
+    dossier.relationships = rel
 
 
 def _attach_climate_risk(dossier: Dossier) -> None:
@@ -392,6 +473,40 @@ def get_or_build_dossier(
         dossier.predictions = result.get("predictions", {})
     except Exception as exc:
         dossier.errors.append(f"analytics: {exc}")
+
+    try:
+        reg = dossier.registry or {}
+        fin = dossier.financials or {}
+        mkt = dossier.market or {}
+        climate_index = (dossier.cross.get("climate_index") or {}).get("value")
+        dossier.climate_financial = climate_financial_impact(
+            cnae_code=reg.get("cnae_codigo"),
+            climate_index=climate_index,
+            revenue=fin.get("revenue"),
+            ebit=fin.get("ebit"),
+            ebitda=fin.get("ebitda"),
+            market_cap=mkt.get("market_cap"),
+            total_assets=fin.get("total_assets"),
+            company_name=dossier.name or query,
+        )
+    except Exception as exc:
+        dossier.errors.append(f"climate_financial: {exc}")
+
+    _attach_relationships(dossier, analytics_cnpj)
+
+    try:
+        reg = dossier.registry or {}
+        fin = dossier.financials or {}
+        dossier.supply_chain = supply_chain_climate_risk(
+            value_chain=(dossier.relationships or {}).get("value_chain"),
+            company_cnae=reg.get("cnae_codigo"),
+            revenue=fin.get("revenue"),
+            ebit=fin.get("ebit"),
+            ebitda=fin.get("ebitda"),
+            company_name=dossier.name or query,
+        )
+    except Exception as exc:
+        dossier.errors.append(f"supply_chain: {exc}")
 
     payload = asdict(dossier)
     session.merge(

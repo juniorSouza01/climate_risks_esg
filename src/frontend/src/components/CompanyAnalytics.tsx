@@ -14,7 +14,7 @@ const SEAL_STYLE: Record<string, { bg: string; label: string }> = {
   previsto: { bg: "#1e3a8a", label: "PREVISTO" },
 };
 
-function Seal({ kind }: { kind?: string }) {
+export function Seal({ kind }: { kind?: string }) {
   const s = SEAL_STYLE[kind ?? ""] ?? { bg: "#334155", label: (kind ?? "").toUpperCase() };
   return (
     <span className="seal" style={{ background: s.bg }}>
@@ -31,12 +31,22 @@ function Bar({ value, color }: { value: number; color: string }) {
   );
 }
 
+const CHANNEL_ORDER = ["receita", "materia_prima", "ebitda", "ativos", "roi"];
+
+function riskColor(v: number): string {
+  return v < 33 ? "#22c55e" : v < 66 ? "#f59e0b" : "#ef4444";
+}
+
 export function CompanyAnalytics({ dossier }: { dossier: Dossier }) {
   const c = dossier.cross ?? {};
   const p = dossier.predictions ?? {};
+  const cf = dossier.climate_financial ?? {};
+  const sc = dossier.supply_chain ?? {};
   const hasCross = c.climate_index || c.revenue_at_risk || c.revenue_percentile;
   const hasPred = p.segment || p.peers || p.anomaly;
-  if (!hasCross && !hasPred) return null;
+  const hasCF = cf.channels && cf.risco_ajustado;
+  const hasSC = (sc.suppliers?.length ?? 0) > 0;
+  if (!hasCross && !hasPred && !hasCF && !hasSC) return null;
 
   const ci = c.climate_index;
   const rar = c.revenue_at_risk;
@@ -108,6 +118,141 @@ export function CompanyAnalytics({ dossier }: { dossier: Dossier }) {
           {c.narrative && (
             <div className="result-block">
               <Narrative markdown={c.narrative} />
+            </div>
+          )}
+        </section>
+      )}
+
+      {hasCF && (
+        <section className="sub-panel cross">
+          <h4>
+            Impacto financeiro do risco climático <Seal kind={cf.seal} />
+          </h4>
+          <p className="muted" style={{ marginTop: -4 }}>
+            Traduz a ameaça climática da sede em impacto no DRE, balanço e retorno, ponderado pelo
+            modelo de negócio (setor <b>{cf.sector?.archetype}</b>
+            {cf.sector?.assumed ? " · setor assumido pelo cadastro" : ""}). Coeficientes setoriais
+            calibráveis — estimativa, não perda modelada por ativo.
+          </p>
+
+          {cf.risco_ajustado && (
+            <div className="cross-card" style={{ marginBottom: 12 }}>
+              <div className="cross-top">
+                <span>Risco climático ajustado pela materialidade financeira</span>
+              </div>
+              <div className="cross-val" style={{ color: riskColor(cf.risco_ajustado.value) }}>
+                {cf.risco_ajustado.value.toFixed(0)}/100 · {cf.risco_ajustado.label}
+              </div>
+              <Bar value={cf.risco_ajustado.value} color={riskColor(cf.risco_ajustado.value)} />
+              <div className="muted">
+                clima da sede {cf.climate_index?.toFixed(0)}/100 × materialidade{" "}
+                {((cf.materialidade ?? 0) * 100).toFixed(0)}% do EBITDA exposto → o risco cresce com
+                o impacto financeiro.
+              </div>
+            </div>
+          )}
+
+          <div className="cross-grid">
+            {CHANNEL_ORDER.filter((k) => cf.channels?.[k]).map((k) => {
+              const ch = cf.channels![k];
+              const isRoi = !!ch.pp;
+              const band = (ch.pp ?? ch.brl)!;
+              return (
+                <div key={k} className="cross-card">
+                  <div className="cross-top">
+                    <span>{ch.label}</span>
+                    <span className="seal" style={{ background: "#334155" }}>
+                      {ch.statement}
+                    </span>
+                  </div>
+                  <div className="cross-val" style={{ color: "#f59e0b" }}>
+                    {isRoi ? `−${band.central.toFixed(2)} p.p.` : fmtBRL(band.central)}
+                  </div>
+                  <div className="muted">
+                    faixa{" "}
+                    {isRoi
+                      ? `${band.low.toFixed(2)}–${band.high.toFixed(2)} p.p.`
+                      : `${fmtBRL(band.low)} – ${fmtBRL(band.high)}`}
+                    {ch.pct_base != null ? ` · ${ch.pct_base}% da linha` : ""}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {cf.narrative && (
+            <div className="result-block">
+              <Narrative markdown={cf.narrative} />
+            </div>
+          )}
+        </section>
+      )}
+
+      {hasSC && (
+        <section className="sub-panel cross">
+          <h4>
+            Risco climático na cadeia de suprimentos <Seal kind={sc.seal} />
+          </h4>
+          <p className="muted" style={{ marginTop: -4 }}>
+            Se um fornecedor sofre um evento climático (ex.: seca destrói a safra de algodão), a
+            produção para e a empresa perde dinheiro. Setores fornecedores típicos do CNAE ×
+            exposição climática média nacional (AdaptaBrasil) — não são fornecedores reais.
+          </p>
+
+          <div className="cross-grid">
+            <div className="cross-card">
+              <div className="cross-top">
+                <span>Índice de risco da cadeia</span>
+              </div>
+              <div
+                className="cross-val"
+                style={{ color: riskColor(sc.chain_risk_index ?? 0) }}
+              >
+                {(sc.chain_risk_index ?? 0).toFixed(0)}/100
+              </div>
+              <Bar value={sc.chain_risk_index ?? 0} color={riskColor(sc.chain_risk_index ?? 0)} />
+            </div>
+            {sc.production_at_risk_brl && (
+              <div className="cross-card">
+                <div className="cross-top">
+                  <span>Perda de produção potencial</span>
+                </div>
+                <div className="cross-val" style={{ color: "#f59e0b" }}>
+                  {fmtBRL(sc.production_at_risk_brl.central)}
+                  {sc.production_at_risk_pct_ebitda != null
+                    ? ` · ${sc.production_at_risk_pct_ebitda.toFixed(0)}% do EBITDA`
+                    : ""}
+                </div>
+                <div className="muted">
+                  faixa {fmtBRL(sc.production_at_risk_brl.low)} –{" "}
+                  {fmtBRL(sc.production_at_risk_brl.high)} · dependência de insumos{" "}
+                  {((sc.dependence_raw_material ?? 0) * 100).toFixed(0)}%
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="cross-grid" style={{ marginTop: 12 }}>
+            {(sc.suppliers ?? []).map((s, i) => (
+              <div key={i} className="cross-card">
+                <div className="cross-top">
+                  <span>{s.label}</span>
+                </div>
+                <div className="cross-val" style={{ fontSize: 16, color: riskColor(s.disruption_index) }}>
+                  disrupção {s.disruption_index.toFixed(0)}/100
+                </div>
+                <Bar value={s.disruption_index} color={riskColor(s.disruption_index)} />
+                <div className="muted">
+                  ameaça dominante: <b>{s.dominant_hazard}</b> · exposição{" "}
+                  {s.exposure_index.toFixed(0)}/100
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {sc.narrative && (
+            <div className="result-block">
+              <Narrative markdown={sc.narrative} />
             </div>
           )}
         </section>

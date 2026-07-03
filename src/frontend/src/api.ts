@@ -108,8 +108,20 @@ export interface Dossier {
     net_income: number | null;
     ebit?: number | null;
     ebitda?: number | null;
+    total_assets?: number | null;
+    equity?: number | null;
+    gross_debt?: number | null;
     net_margin?: number | null;
     ebitda_margin?: number | null;
+    debt_to_ebitda?: number | null;
+    roe?: number | null;
+    revenue_growth?: number | null;
+    history?: {
+      fiscal_year: number;
+      revenue: number | null;
+      ebitda: number | null;
+      net_income: number | null;
+    }[];
     fiscal_year: number;
     source?: string;
   } | null;
@@ -147,6 +159,74 @@ export interface Dossier {
       seal: string;
     };
     anomaly?: { is_outlier: boolean; score: number; basis: string; seal: string };
+  };
+  climate_financial: {
+    sector?: {
+      cnae: string | null;
+      division: string | null;
+      archetype: string;
+      assumed: boolean;
+      sensitivities: { raw_material: number; asset: number; revenue: number; transition: number };
+    };
+    physical_exposure?: number;
+    climate_index?: number;
+    channels?: Record<
+      string,
+      {
+        label: string;
+        statement: string;
+        brl?: { low: number; central: number; high: number };
+        pp?: { low: number; central: number; high: number };
+        pct_base?: number | null;
+      }
+    >;
+    materialidade?: number;
+    risco_ajustado?: { value: number; label: string; basis: string };
+    narrative?: string;
+    seal?: string;
+  };
+  relationships?: {
+    cnpj?: string;
+    gov_supplier?: {
+      found: boolean;
+      habilitado_licitar?: boolean | null;
+      ativo?: boolean | null;
+      razao_social?: string | null;
+      cnae_nome?: string | null;
+      natureza_juridica?: string | null;
+      porte?: string | null;
+      municipio?: string | null;
+      uf?: string | null;
+      note?: string;
+    } | null;
+    socios?: { items: string[]; count: number } | null;
+    value_chain?: {
+      archetype?: string;
+      assumed?: boolean;
+      upstream?: { division: string | null; label: string }[];
+      downstream?: { division: string | null; label: string }[];
+      methodology?: string;
+    } | null;
+    public_contracts?: { available: boolean; reason?: string };
+  } | null;
+  supply_chain: {
+    suppliers?: {
+      division: string | null;
+      label: string;
+      archetype?: string | null;
+      dominant_hazard: string;
+      exposure_index: number;
+      fragility: number;
+      disruption_index: number;
+    }[];
+    chain_risk_index?: number;
+    dependence_raw_material?: number;
+    production_at_risk_brl?: { low: number; central: number; high: number };
+    production_at_risk_pct_ebitda?: number | null;
+    national_hazard_means?: Record<string, number>;
+    methodology?: string;
+    narrative?: string;
+    seal?: string;
   };
 }
 

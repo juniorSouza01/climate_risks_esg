@@ -413,6 +413,9 @@ class CvmFinancials(Base):
     ebit: Mapped[float | None] = mapped_column(Numeric)
     ebitda: Mapped[float | None] = mapped_column(Numeric)
     net_income: Mapped[float | None] = mapped_column(Numeric)
+    total_assets: Mapped[float | None] = mapped_column(Numeric)
+    equity: Mapped[float | None] = mapped_column(Numeric)
+    gross_debt: Mapped[float | None] = mapped_column(Numeric)
     source: Mapped[str] = mapped_column(String(40))
     computed_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
