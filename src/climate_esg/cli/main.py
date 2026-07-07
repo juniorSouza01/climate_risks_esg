@@ -7,6 +7,7 @@ Pipelines reais ficam em ``pipelines/flows/`` (Prefect 3).
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any, cast
 
 import typer
 from rich.console import Console
@@ -175,9 +176,14 @@ def db_prune_dossier_cache() -> None:
 
     now = dt.datetime.now(dt.UTC)
     with session_scope() as session:
-        result = session.execute(sa.delete(CacheDossier).where(CacheDossier.expires_at <= now))
+        result = cast(
+            "sa.CursorResult[Any]",
+            session.execute(sa.delete(CacheDossier).where(CacheDossier.expires_at <= now)),
+        )
         removed = result.rowcount or 0
-    console.print(f"[bold green]{removed} entradas expiradas removidas do cache do dossiê.[/bold green]")
+    console.print(
+        f"[bold green]{removed} entradas expiradas removidas do cache do dossiê.[/bold green]"
+    )
 
 
 @db_app.command(
@@ -221,7 +227,10 @@ def db_prune_model_runs(
             ~sa.exists(sa.select(fact.run_sk).where(fact.run_sk == DimModelRun.run_sk))
         )
     with session_scope() as session:
-        result = session.execute(sa.delete(DimModelRun).where(*conditions))
+        result = cast(
+            "sa.CursorResult[Any]",
+            session.execute(sa.delete(DimModelRun).where(*conditions)),
+        )
         removed = result.rowcount or 0
     console.print(
         f"[bold green]{removed} runs órfãos/failed (>{days}d) removidos de dim_model_run.[/bold green]"

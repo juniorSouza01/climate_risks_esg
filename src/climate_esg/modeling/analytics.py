@@ -155,7 +155,11 @@ def analyze_company(
 
     ci = _climate_index(climate_risk)
     if ci is not None:
-        cross["climate_index"] = {"value": ci, "label": severity_label(ci), "basis": "sede municipal"}
+        cross["climate_index"] = {
+            "value": ci,
+            "label": severity_label(ci),
+            "basis": "sede municipal",
+        }
         if rev:
             frac = ci / 100.0
             cross["revenue_at_risk"] = {
@@ -204,7 +208,9 @@ def analyze_company(
         members = [i for i, c in enumerate(labels) if c == target_cluster]
         median_rev = float(np.median([universe[i]["revenue"] for i in members]))
         cl_margins = [
-            universe[i]["ebitda_margin"] for i in members if universe[i]["ebitda_margin"] is not None
+            universe[i]["ebitda_margin"]
+            for i in members
+            if universe[i]["ebitda_margin"] is not None
         ]
         median_margin = float(np.median(cl_margins)) if cl_margins else None
         predictions["segment"] = {
@@ -224,7 +230,11 @@ def analyze_company(
             if int(i) == target_idx:
                 continue
             peers.append(
-                {"cnpj": universe[i]["cnpj"], "denom": universe[i]["denom"], "distance": round(float(d), 3)}
+                {
+                    "cnpj": universe[i]["cnpj"],
+                    "denom": universe[i]["denom"],
+                    "distance": round(float(d), 3),
+                }
             )
         predictions["peers"] = {
             "items": peers[:5],

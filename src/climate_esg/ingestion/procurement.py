@@ -7,9 +7,7 @@ import httpx
 from climate_esg.ingestion.geocoding import only_digits
 from climate_esg.ingestion.http import request_json
 
-GOV_SUPPLIER_URL = (
-    "https://dadosabertos.compras.gov.br/modulo-fornecedor/1_consultarFornecedor"
-)
+GOV_SUPPLIER_URL = "https://dadosabertos.compras.gov.br/modulo-fornecedor/1_consultarFornecedor"
 
 
 def fetch_gov_supplier(cnpj: str, *, timeout: float | None = None) -> dict[str, Any] | None:

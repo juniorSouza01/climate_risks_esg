@@ -16,16 +16,12 @@ ADAPTABRASIL_SCHEMA = pa.DataFrameSchema(
 )
 
 
-def validate_adaptabrasil_rows(
-    rows: Sequence[tuple[str, float, str]], *, indicator: int
-) -> None:
+def validate_adaptabrasil_rows(rows: Sequence[tuple[str, float, str]], *, indicator: int) -> None:
     if not indicator:
         raise ValueError("payload AdaptaBrasil sem indicador associado")
     if not rows:
         return
-    df = pd.DataFrame(
-        [(ibge, value) for ibge, value, _ in rows], columns=["ibge_code", "value"]
-    )
+    df = pd.DataFrame([(ibge, value) for ibge, value, _ in rows], columns=["ibge_code", "value"])
     ADAPTABRASIL_SCHEMA.validate(df, lazy=True)
 
 
@@ -35,7 +31,5 @@ class BrapiQuoteBoundary(BaseModel):
     market_cap: float | None = Field(default=None, gt=0.0, lt=MAX_PLAUSIBLE_MARKET_CAP)
 
 
-def validate_brapi_quote(
-    ticker: str, price: float | None, market_cap: float | None
-) -> None:
+def validate_brapi_quote(ticker: str, price: float | None, market_cap: float | None) -> None:
     BrapiQuoteBoundary(ticker=ticker, price=price, market_cap=market_cap)

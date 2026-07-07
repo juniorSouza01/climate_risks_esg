@@ -120,9 +120,7 @@ def ingest_adaptabrasil_exposure(session: Session) -> int:
                 continue
             for year in HORIZONS:
                 values = fetch_indicator(indicator, year, adapta_scenario)
-                targets = [
-                    (asset_sk, values[ibge]) for asset_sk, ibge in assets if ibge in values
-                ]
+                targets = [(asset_sk, values[ibge]) for asset_sk, ibge in assets if ibge in values]
                 if not targets:
                     continue
                 session.execute(

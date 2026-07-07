@@ -300,9 +300,7 @@ def _attach_location(dossier: Dossier) -> None:
                 build_address_query(street=street, municipality=str(municipio), state=str(uf or ""))
             )
         if result is None and municipio:
-            result = geocode(
-                build_address_query(municipality=str(municipio), state=str(uf or ""))
-            )
+            result = geocode(build_address_query(municipality=str(municipio), state=str(uf or "")))
         if result is not None:
             dossier.latitude = result.latitude
             dossier.longitude = result.longitude
@@ -353,13 +351,9 @@ def _attach_financials(session: Session, dossier: Dossier, cnpj: str | None) -> 
         }
         for r in rows
     ]
-    prev_revenue = next(
-        (h["revenue"] for h in history[1:] if h["revenue"]), None
-    )
+    prev_revenue = next((h["revenue"] for h in history[1:] if h["revenue"]), None)
     revenue_growth = (
-        (revenue - prev_revenue) / prev_revenue
-        if (revenue is not None and prev_revenue)
-        else None
+        (revenue - prev_revenue) / prev_revenue if (revenue is not None and prev_revenue) else None
     )
 
     dossier.financials = {
@@ -666,9 +660,7 @@ def get_or_build_dossier(
         return cached
 
     if session.get_bind().dialect.name == "postgresql":
-        session.execute(
-            sa.text("SELECT pg_advisory_xact_lock(hashtext(:key))"), {"key": key}
-        )
+        session.execute(sa.text("SELECT pg_advisory_xact_lock(hashtext(:key))"), {"key": key})
         session.expire_all()
         cached = _cached_payload(session, key, now)
         if cached is not None:
@@ -679,9 +671,7 @@ def get_or_build_dossier(
     dossier.company_sk = _resolve_company_sk(session, query, dossier)
     if dossier.company_sk is not None:
         _consolidate_internal(session, dossier)
-    _attach_financials(
-        session, dossier, only_digits(query) if dossier.kind == "cnpj" else None
-    )
+    _attach_financials(session, dossier, only_digits(query) if dossier.kind == "cnpj" else None)
 
     fin_cnpj = (dossier.financials or {}).get("cnpj")
     analytics_cnpj = fin_cnpj or (only_digits(query) if dossier.kind == "cnpj" else None)

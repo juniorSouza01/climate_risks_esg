@@ -30,12 +30,16 @@ _HAZARD_AFFINITY: dict[str, dict[str, float]] = {
 }
 _DEFAULT_AFFINITY = {"enchente": 0.40, "seca": 0.35, "deslizamento": 0.25}
 
-_HAZARD_LABEL = {"seca": "seca/estresse hídrico", "enchente": "inundação", "deslizamento": "deslizamento"}
+_HAZARD_LABEL = {
+    "seca": "seca/estresse hídrico",
+    "enchente": "inundação",
+    "deslizamento": "deslizamento",
+}
 
 
 def _fragility(division: str | None) -> float:
     prof = sector_profile(division)
-    return 0.5 * prof["raw_material"] + 0.3 * prof["asset"] + 0.2 * prof["revenue"]
+    return float(0.5 * prof["raw_material"] + 0.3 * prof["asset"] + 0.2 * prof["revenue"])
 
 
 def _band(central: float) -> dict[str, float]:

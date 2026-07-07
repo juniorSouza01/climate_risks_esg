@@ -113,9 +113,7 @@ def _attempt_request(
             retry_after = _parse_retry_after(resp.headers.get("Retry-After"))
             if retry_after:
                 time.sleep(min(retry_after, MAX_RETRY_AFTER_S))
-        raise TransientHTTPError(
-            f"{source}: HTTP {status}", request=resp.request, response=resp
-        )
+        raise TransientHTTPError(f"{source}: HTTP {status}", request=resp.request, response=resp)
 
     if 400 <= status < 500:
         _log_failure(source, status, latency_ms, attempt)
@@ -146,8 +144,8 @@ def request_json(
     headers: dict[str, str] | None = None,
     timeout: float | None = None,
 ) -> Any:
-    effective_timeout = timeout if timeout is not None else DEFAULT_TIMEOUTS.get(
-        source, FALLBACK_TIMEOUT
+    effective_timeout = (
+        timeout if timeout is not None else DEFAULT_TIMEOUTS.get(source, FALLBACK_TIMEOUT)
     )
     retryer = Retrying(
         reraise=True,

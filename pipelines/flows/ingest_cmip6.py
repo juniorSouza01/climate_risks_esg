@@ -19,7 +19,12 @@ from climate_esg.db.models import (
 )
 from climate_esg.geospatial.regions import SANTA_CATARINA, BBox, bbox_from_points
 from climate_esg.governance.lineage import hash_data_version, start_model_run
-from climate_esg.ingestion.cf_validation import check_value_range
+from climate_esg.ingestion.cf_validation import (
+    check_nan_fraction,
+    check_time_monotonic,
+    check_units,
+    check_value_range,
+)
 from climate_esg.ingestion.esgf_client import (
     CMIP6Identifier,
     download_manifest,
@@ -108,6 +113,10 @@ def validate_netcdf(paths: list[Path]) -> list[Path]:
             vmin = float(da.min().compute())
             vmax = float(da.max().compute())
             check_value_range(var_name, vmin, vmax)
+            check_units(var_name, da.attrs.get("units"))
+            nan_fraction = float(da.isnull().mean().compute())
+            check_nan_fraction(var_name, nan_fraction)
+            check_time_monotonic(ds["time"].values)
             logger.info("validate ok: %s (%s ∈ [%.4g, %.4g])", p.name, var_name, vmin, vmax)
         finally:
             ds.close()

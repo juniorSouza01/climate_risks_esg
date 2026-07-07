@@ -6,7 +6,7 @@ import json
 import subprocess
 from collections.abc import Iterable
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import sqlalchemy as sa
 from sqlalchemy.orm import Session
@@ -127,7 +127,10 @@ def prune_stale_runs(
         return 0
     facts_deleted = 0
     for fact in _RUN_LINKED_FACTS:
-        result = session.execute(sa.delete(fact).where(fact.run_sk.in_(run_sks)))
+        result = cast(
+            "sa.CursorResult[Any]",
+            session.execute(sa.delete(fact).where(fact.run_sk.in_(run_sks))),
+        )
         facts_deleted += result.rowcount or 0
     session.execute(sa.delete(DimModelRun).where(DimModelRun.run_sk.in_(run_sks)))
     session.flush()

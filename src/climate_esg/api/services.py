@@ -34,9 +34,7 @@ from climate_esg.modeling.scoring import ScoreBand, compose_score
 
 ScoreTable = type[FactPhysicalRiskScore] | type[FactTransitionRiskScore]
 
-_PHYSICAL_UNAVAILABLE_REASON = (
-    "Dados CMIP6 SSP ainda não ingeridos; score físico indisponível"
-)
+_PHYSICAL_UNAVAILABLE_REASON = "Dados CMIP6 SSP ainda não ingeridos; score físico indisponível"
 
 
 def _f(value: float | None) -> float | None:
