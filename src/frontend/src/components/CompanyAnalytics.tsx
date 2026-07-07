@@ -1,12 +1,6 @@
-import type { Dossier } from "../api";
+import type { Dossier, SectionStatus } from "../api";
 import { Narrative } from "./Narrative";
-
-function fmtBRL(v: number): string {
-  if (Math.abs(v) >= 1e9) return "R$ " + (v / 1e9).toFixed(2) + " bi";
-  if (Math.abs(v) >= 1e6) return "R$ " + (v / 1e6).toFixed(2) + " mi";
-  if (Math.abs(v) >= 1e3) return "R$ " + (v / 1e3).toFixed(0) + " mil";
-  return "R$ " + v.toFixed(0);
-}
+import { fmtBRL, severityColor } from "./util";
 
 const SEAL_STYLE: Record<string, { bg: string; label: string }> = {
   factual: { bg: "#166534", label: "FACTUAL" },
@@ -33,8 +27,17 @@ function Bar({ value, color }: { value: number; color: string }) {
 
 const CHANNEL_ORDER = ["receita", "materia_prima", "ebitda", "ativos", "roi"];
 
-function riskColor(v: number): string {
-  return v < 33 ? "#22c55e" : v < 66 ? "#f59e0b" : "#ef4444";
+function isBlocked(status?: SectionStatus): boolean {
+  return status != null && status !== "ok";
+}
+
+function SectionNotice({ title, reason }: { title: string; reason?: string | null }) {
+  return (
+    <section className="sub-panel">
+      <h4>{title}</h4>
+      <div className="muted">{reason || "Seção indisponível para esta empresa."}</div>
+    </section>
+  );
 }
 
 export function CompanyAnalytics({ dossier }: { dossier: Dossier }) {
@@ -42,11 +45,27 @@ export function CompanyAnalytics({ dossier }: { dossier: Dossier }) {
   const p = dossier.predictions ?? {};
   const cf = dossier.climate_financial ?? {};
   const sc = dossier.supply_chain ?? {};
-  const hasCross = c.climate_index || c.revenue_at_risk || c.revenue_percentile;
-  const hasPred = p.segment || p.peers || p.anomaly;
-  const hasCF = cf.channels && cf.risco_ajustado;
-  const hasSC = (sc.suppliers?.length ?? 0) > 0;
-  if (!hasCross && !hasPred && !hasCF && !hasSC) return null;
+  const cfBlocked = isBlocked(cf.status);
+  const scBlocked = isBlocked(sc.status);
+  const predBlocked = isBlocked(p.status);
+  const crossBlocked = isBlocked(c.status);
+  const hasCross =
+    !crossBlocked && (c.climate_index || c.revenue_at_risk || c.revenue_percentile);
+  const hasPred = !predBlocked && (p.segment || p.peers || p.anomaly);
+  const hasCF = !cfBlocked && cf.channels && cf.risco_ajustado;
+  const hasSC = !scBlocked && (sc.suppliers?.length ?? 0) > 0;
+  if (
+    !hasCross &&
+    !hasPred &&
+    !hasCF &&
+    !hasSC &&
+    !cfBlocked &&
+    !scBlocked &&
+    !predBlocked &&
+    !crossBlocked
+  ) {
+    return null;
+  }
 
   const ci = c.climate_index;
   const rar = c.revenue_at_risk;
@@ -55,6 +74,7 @@ export function CompanyAnalytics({ dossier }: { dossier: Dossier }) {
 
   return (
     <>
+      {crossBlocked && <SectionNotice title="Cruzamento de dados" reason={c.reason} />}
       {hasCross && (
         <section className="sub-panel cross">
           <h4>Cruzamento de dados</h4>
@@ -69,10 +89,10 @@ export function CompanyAnalytics({ dossier }: { dossier: Dossier }) {
                   <span>Ameaça climática (sede)</span>
                   <Seal kind="factual" />
                 </div>
-                <div className="cross-val" style={{ color: ci.value < 33 ? "#22c55e" : ci.value < 66 ? "#f59e0b" : "#ef4444" }}>
-                  {ci.value.toFixed(0)}/100 · {ci.label}
+                <div className="cross-val" style={{ color: severityColor(ci.value ?? 0) }}>
+                  {ci.value?.toFixed(0) ?? "—"}/100 · {ci.label}
                 </div>
-                <Bar value={ci.value} color={ci.value < 33 ? "#22c55e" : ci.value < 66 ? "#f59e0b" : "#ef4444"} />
+                <Bar value={ci.value ?? 0} color={severityColor(ci.value ?? 0)} />
               </div>
             )}
             {rar && (
@@ -82,11 +102,11 @@ export function CompanyAnalytics({ dossier }: { dossier: Dossier }) {
                   <Seal kind="inferido" />
                 </div>
                 <div className="cross-val" style={{ color: "#f59e0b" }}>
-                  {rar.pct_central.toFixed(1)}% · {fmtBRL(rar.brl_central)}
+                  {rar.pct_central?.toFixed(1) ?? "—"}% · {fmtBRL(rar.brl_central)}
                 </div>
                 <div className="muted">
-                  faixa {rar.pct_low.toFixed(1)}–{rar.pct_high.toFixed(1)}% · heurística, não perda
-                  modelada
+                  faixa {rar.pct_low?.toFixed(1) ?? "—"}–{rar.pct_high?.toFixed(1) ?? "—"}% ·
+                  heurística, não perda modelada
                 </div>
               </div>
             )}
@@ -96,8 +116,8 @@ export function CompanyAnalytics({ dossier }: { dossier: Dossier }) {
                   <span>Receita no setor</span>
                   <Seal kind="factual" />
                 </div>
-                <div className="cross-val">percentil {rp.value.toFixed(0)}</div>
-                <Bar value={rp.value} color="#38bdf8" />
+                <div className="cross-val">percentil {rp.value?.toFixed(0) ?? "—"}</div>
+                <Bar value={rp.value ?? 0} color="#38bdf8" />
                 <div className="muted">
                   de {rp.n} cias · {rp.basis}
                 </div>
@@ -109,8 +129,8 @@ export function CompanyAnalytics({ dossier }: { dossier: Dossier }) {
                   <span>Margem EBITDA</span>
                   <Seal kind="factual" />
                 </div>
-                <div className="cross-val">percentil {emp.value.toFixed(0)}</div>
-                <Bar value={emp.value} color="#38bdf8" />
+                <div className="cross-val">percentil {emp.value?.toFixed(0) ?? "—"}</div>
+                <Bar value={emp.value ?? 0} color="#38bdf8" />
                 <div className="muted">de {emp.n} cias · {emp.basis}</div>
               </div>
             )}
@@ -123,6 +143,9 @@ export function CompanyAnalytics({ dossier }: { dossier: Dossier }) {
         </section>
       )}
 
+      {cfBlocked && (
+        <SectionNotice title="Impacto financeiro do risco climático" reason={cf.reason} />
+      )}
       {hasCF && (
         <section className="sub-panel cross">
           <h4>
@@ -140,10 +163,13 @@ export function CompanyAnalytics({ dossier }: { dossier: Dossier }) {
               <div className="cross-top">
                 <span>Risco climático ajustado pela materialidade financeira</span>
               </div>
-              <div className="cross-val" style={{ color: riskColor(cf.risco_ajustado.value) }}>
-                {cf.risco_ajustado.value.toFixed(0)}/100 · {cf.risco_ajustado.label}
+              <div className="cross-val" style={{ color: severityColor(cf.risco_ajustado.value ?? 0) }}>
+                {cf.risco_ajustado.value?.toFixed(0) ?? "—"}/100 · {cf.risco_ajustado.label}
               </div>
-              <Bar value={cf.risco_ajustado.value} color={riskColor(cf.risco_ajustado.value)} />
+              <Bar
+                value={cf.risco_ajustado.value ?? 0}
+                color={severityColor(cf.risco_ajustado.value ?? 0)}
+              />
               <div className="muted">
                 clima da sede {cf.climate_index?.toFixed(0)}/100 × materialidade{" "}
                 {((cf.materialidade ?? 0) * 100).toFixed(0)}% do EBITDA exposto → o risco cresce com
@@ -154,9 +180,11 @@ export function CompanyAnalytics({ dossier }: { dossier: Dossier }) {
 
           <div className="cross-grid">
             {CHANNEL_ORDER.filter((k) => cf.channels?.[k]).map((k) => {
-              const ch = cf.channels![k];
+              const ch = cf.channels?.[k];
+              if (!ch) return null;
               const isRoi = !!ch.pp;
-              const band = (ch.pp ?? ch.brl)!;
+              const band = ch.pp ?? ch.brl;
+              if (!band) return null;
               return (
                 <div key={k} className="cross-card">
                   <div className="cross-top">
@@ -166,12 +194,12 @@ export function CompanyAnalytics({ dossier }: { dossier: Dossier }) {
                     </span>
                   </div>
                   <div className="cross-val" style={{ color: "#f59e0b" }}>
-                    {isRoi ? `−${band.central.toFixed(2)} p.p.` : fmtBRL(band.central)}
+                    {isRoi ? `−${band.central?.toFixed(2) ?? "—"} p.p.` : fmtBRL(band.central)}
                   </div>
                   <div className="muted">
                     faixa{" "}
                     {isRoi
-                      ? `${band.low.toFixed(2)}–${band.high.toFixed(2)} p.p.`
+                      ? `${band.low?.toFixed(2) ?? "—"}–${band.high?.toFixed(2) ?? "—"} p.p.`
                       : `${fmtBRL(band.low)} – ${fmtBRL(band.high)}`}
                     {ch.pct_base != null ? ` · ${ch.pct_base}% da linha` : ""}
                   </div>
@@ -188,6 +216,9 @@ export function CompanyAnalytics({ dossier }: { dossier: Dossier }) {
         </section>
       )}
 
+      {scBlocked && (
+        <SectionNotice title="Risco climático na cadeia de suprimentos" reason={sc.reason} />
+      )}
       {hasSC && (
         <section className="sub-panel cross">
           <h4>
@@ -206,11 +237,14 @@ export function CompanyAnalytics({ dossier }: { dossier: Dossier }) {
               </div>
               <div
                 className="cross-val"
-                style={{ color: riskColor(sc.chain_risk_index ?? 0) }}
+                style={{ color: severityColor(sc.chain_risk_index ?? 0) }}
               >
                 {(sc.chain_risk_index ?? 0).toFixed(0)}/100
               </div>
-              <Bar value={sc.chain_risk_index ?? 0} color={riskColor(sc.chain_risk_index ?? 0)} />
+              <Bar
+                value={sc.chain_risk_index ?? 0}
+                color={severityColor(sc.chain_risk_index ?? 0)}
+              />
             </div>
             {sc.production_at_risk_brl && (
               <div className="cross-card">
@@ -218,14 +252,14 @@ export function CompanyAnalytics({ dossier }: { dossier: Dossier }) {
                   <span>Perda de produção potencial</span>
                 </div>
                 <div className="cross-val" style={{ color: "#f59e0b" }}>
-                  {fmtBRL(sc.production_at_risk_brl.central)}
+                  {fmtBRL(sc.production_at_risk_brl?.central)}
                   {sc.production_at_risk_pct_ebitda != null
                     ? ` · ${sc.production_at_risk_pct_ebitda.toFixed(0)}% do EBITDA`
                     : ""}
                 </div>
                 <div className="muted">
-                  faixa {fmtBRL(sc.production_at_risk_brl.low)} –{" "}
-                  {fmtBRL(sc.production_at_risk_brl.high)} · dependência de insumos{" "}
+                  faixa {fmtBRL(sc.production_at_risk_brl?.low)} –{" "}
+                  {fmtBRL(sc.production_at_risk_brl?.high)} · dependência de insumos{" "}
                   {((sc.dependence_raw_material ?? 0) * 100).toFixed(0)}%
                 </div>
               </div>
@@ -238,13 +272,19 @@ export function CompanyAnalytics({ dossier }: { dossier: Dossier }) {
                 <div className="cross-top">
                   <span>{s.label}</span>
                 </div>
-                <div className="cross-val" style={{ fontSize: 16, color: riskColor(s.disruption_index) }}>
-                  disrupção {s.disruption_index.toFixed(0)}/100
+                <div
+                  className="cross-val"
+                  style={{ fontSize: 16, color: severityColor(s.disruption_index ?? 0) }}
+                >
+                  disrupção {s.disruption_index?.toFixed(0) ?? "—"}/100
                 </div>
-                <Bar value={s.disruption_index} color={riskColor(s.disruption_index)} />
+                <Bar
+                  value={s.disruption_index ?? 0}
+                  color={severityColor(s.disruption_index ?? 0)}
+                />
                 <div className="muted">
                   ameaça dominante: <b>{s.dominant_hazard}</b> · exposição{" "}
-                  {s.exposure_index.toFixed(0)}/100
+                  {s.exposure_index?.toFixed(0) ?? "—"}/100
                 </div>
               </div>
             ))}
@@ -258,6 +298,7 @@ export function CompanyAnalytics({ dossier }: { dossier: Dossier }) {
         </section>
       )}
 
+      {predBlocked && <SectionNotice title="Análises preditivas (ML)" reason={p.reason} />}
       {hasPred && (
         <section className="sub-panel analysis">
           <h4>Análises preditivas (ML)</h4>
@@ -291,7 +332,7 @@ export function CompanyAnalytics({ dossier }: { dossier: Dossier }) {
                   {p.anomaly.is_outlier ? "Perfil atípico" : "Perfil típico"}
                 </div>
                 <div className="muted">
-                  score {p.anomaly.score.toFixed(3)} · {p.anomaly.basis}
+                  score {p.anomaly.score?.toFixed(3) ?? "—"} · {p.anomaly.basis}
                 </div>
               </div>
             )}

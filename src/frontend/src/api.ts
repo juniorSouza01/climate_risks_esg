@@ -6,10 +6,51 @@ export interface Company {
   is_listed: boolean;
 }
 
+export type Availability = "available" | "not_computed" | "no_data";
+
+export type SectionStatus = "ok" | "no_input" | "insufficient_universe" | "unresolved" | "error";
+
+export type DossierStatus = "complete" | "degraded";
+
+export interface DossierSectionError {
+  source: string;
+  code: string;
+  transient?: boolean;
+}
+
+export interface NewsArticle {
+  title: string;
+  url: string;
+  domain: string;
+  seendate: string;
+}
+
+export interface DossierNews {
+  status?: SectionStatus;
+  reason?: string | null;
+  articles: NewsArticle[];
+}
+
+export interface DossierMarket {
+  status?: SectionStatus;
+  reason?: string | null;
+  ticker?: string | null;
+  name?: string | null;
+  currency?: string | null;
+  price?: number | null;
+  market_cap?: number | null;
+  pe_ratio?: number | null;
+  annualized_volatility?: number | null;
+  n_observations?: number | null;
+  confidence?: "exact" | "heuristic" | null;
+}
+
 export interface Band {
   central: number;
   low: number;
   high: number;
+  availability?: Availability;
+  reason?: string | null;
 }
 
 export interface RunInfo {
@@ -35,6 +76,8 @@ export interface ScoreEntry {
   transition_detail: TransitionDetail | null;
   physical_run: RunInfo | null;
   transition_run: RunInfo | null;
+  availability?: Availability;
+  reason?: string | null;
 }
 
 export interface CompanyScores {
@@ -82,13 +125,14 @@ export interface Financial {
 export interface Dossier {
   query: string;
   kind: string;
+  status?: DossierStatus;
   name: string | null;
   registry: Record<string, unknown> | null;
-  market: Record<string, unknown> | null;
-  news: { title: string; url: string; domain: string; seendate: string }[];
-  controversy_ratio: number;
+  market: DossierMarket | null;
+  news: DossierNews;
+  controversy_ratio: number | null;
   sources: string[];
-  errors: string[];
+  errors: DossierSectionError[];
   fetched_at: string | null;
   cached: boolean;
   company_sk: number | null;
@@ -129,6 +173,8 @@ export interface Dossier {
   longitude: number | null;
   location_label: string | null;
   cross: {
+    status?: SectionStatus;
+    reason?: string | null;
     climate_index?: { value: number; label: string; basis: string };
     revenue_at_risk?: {
       pct_low: number;
@@ -145,6 +191,8 @@ export interface Dossier {
     narrative?: string;
   };
   predictions: {
+    status?: SectionStatus;
+    reason?: string | null;
     segment?: {
       cluster: number;
       label: string;
@@ -161,6 +209,8 @@ export interface Dossier {
     anomaly?: { is_outlier: boolean; score: number; basis: string; seal: string };
   };
   climate_financial: {
+    status?: SectionStatus;
+    reason?: string | null;
     sector?: {
       cnae: string | null;
       division: string | null;
@@ -210,6 +260,8 @@ export interface Dossier {
     public_contracts?: { available: boolean; reason?: string };
   } | null;
   supply_chain: {
+    status?: SectionStatus;
+    reason?: string | null;
     suppliers?: {
       division: string | null;
       label: string;
@@ -243,12 +295,31 @@ export interface Anomaly {
   is_outlier: boolean;
 }
 
+const REQUEST_TIMEOUT_MS = 30_000;
+
 async function getJson<T>(url: string): Promise<T> {
-  const resp = await fetch(url);
-  if (!resp.ok) {
-    throw new Error(`${resp.status} ${url}`);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  try {
+    const resp = await fetch(url, { signal: controller.signal });
+    if (!resp.ok) {
+      let body = "";
+      try {
+        body = (await resp.text()).slice(0, 300);
+      } catch {
+        body = "";
+      }
+      throw new Error(`${resp.status} ${url}${body ? ` — ${body}` : ""}`);
+    }
+    return (await resp.json()) as T;
+  } catch (err) {
+    if (err instanceof DOMException && err.name === "AbortError") {
+      throw new Error(`timeout após ${REQUEST_TIMEOUT_MS / 1000}s — ${url}`);
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
   }
-  return (await resp.json()) as T;
 }
 
 export const api = {

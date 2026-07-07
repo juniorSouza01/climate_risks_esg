@@ -34,6 +34,10 @@ from climate_esg.modeling.scoring import ScoreBand, compose_score
 
 ScoreTable = type[FactPhysicalRiskScore] | type[FactTransitionRiskScore]
 
+_PHYSICAL_UNAVAILABLE_REASON = (
+    "Dados CMIP6 SSP ainda não ingeridos; score físico indisponível"
+)
+
 
 def _f(value: float | None) -> float | None:
     return float(value) if value is not None else None
@@ -57,7 +61,8 @@ def _physical_rows(
     f = FactPhysicalRiskScore
     latest = (
         sa.select(f.scenario_sk, f.horizon_year, sa.func.max(f.run_sk).label("run_sk"))
-        .where(f.company_sk == company_sk)
+        .join(DimModelRun, DimModelRun.run_sk == f.run_sk)
+        .where(f.company_sk == company_sk, DimModelRun.status == "success")
         .group_by(f.scenario_sk, f.horizon_year)
         .subquery()
     )
@@ -96,7 +101,8 @@ def _transition_rows(
     f = FactTransitionRiskScore
     latest = (
         sa.select(f.scenario_sk, f.horizon_year, sa.func.max(f.run_sk).label("run_sk"))
-        .where(f.company_sk == company_sk)
+        .join(DimModelRun, DimModelRun.run_sk == f.run_sk)
+        .where(f.company_sk == company_sk, DimModelRun.status == "success")
         .group_by(f.scenario_sk, f.horizon_year)
         .subquery()
     )
@@ -164,6 +170,8 @@ def company_scores(session: Session, company_sk: int) -> list[ScoreEntry]:
                 transition_detail=trans[1] if trans else None,
                 physical_run=phys[1] if phys else None,
                 transition_run=trans[2] if trans else None,
+                availability="available" if phys else "not_computed",
+                reason=None if phys else _PHYSICAL_UNAVAILABLE_REASON,
             )
         )
     return entries
@@ -173,7 +181,8 @@ def company_explanations(session: Session, company_sk: int) -> list[ExplanationO
     f = FactScoreExplanation
     latest = (
         sa.select(f.scenario_sk, f.horizon_year, sa.func.max(f.run_sk).label("run_sk"))
-        .where(f.company_sk == company_sk)
+        .join(DimModelRun, DimModelRun.run_sk == f.run_sk)
+        .where(f.company_sk == company_sk, DimModelRun.status == "success")
         .group_by(f.scenario_sk, f.horizon_year)
         .subquery()
     )
@@ -216,7 +225,8 @@ def company_financial(session: Session, company_sk: int) -> list[FinancialOut]:
     f = FactFinancialImpact
     latest = (
         sa.select(f.scenario_sk, f.horizon_year, sa.func.max(f.run_sk).label("run_sk"))
-        .where(f.company_sk == company_sk)
+        .join(DimModelRun, DimModelRun.run_sk == f.run_sk)
+        .where(f.company_sk == company_sk, DimModelRun.status == "success")
         .group_by(f.scenario_sk, f.horizon_year)
         .subquery()
     )
@@ -299,7 +309,8 @@ def asset_hazards(session: Session, asset_sk: int) -> list[HazardOut]:
             f.horizon_year,
             sa.func.max(f.run_sk).label("run_sk"),
         )
-        .where(f.asset_sk == asset_sk)
+        .join(DimModelRun, DimModelRun.run_sk == f.run_sk)
+        .where(f.asset_sk == asset_sk, DimModelRun.status == "success")
         .group_by(f.hazard_type, f.scenario_sk, f.horizon_year)
         .subquery()
     )
@@ -341,7 +352,12 @@ def _bands_all_companies(
 ) -> dict[int, ScoreBand]:
     latest = (
         sa.select(table.company_sk, sa.func.max(table.run_sk).label("run_sk"))
-        .where(table.scenario_sk == scenario_sk, table.horizon_year == horizon_year)
+        .join(DimModelRun, DimModelRun.run_sk == table.run_sk)
+        .where(
+            table.scenario_sk == scenario_sk,
+            table.horizon_year == horizon_year,
+            DimModelRun.status == "success",
+        )
         .group_by(table.company_sk)
         .subquery()
     )

@@ -166,6 +166,8 @@ class DimModelRun(Base):
     train_data_version: Mapped[str | None] = mapped_column(String(80))
     train_date: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
     hyperparams: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    status: Mapped[str] = mapped_column(String(10), server_default="success")
+    finished_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

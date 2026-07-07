@@ -5,13 +5,11 @@ from dataclasses import dataclass
 
 from climate_esg.modeling.scoring import ScoreBand
 
-SCENARIO_MAX_IMPACT: dict[str, float] = {
+SCENARIO_STRESS_FACTORS: dict[str, float] = {
     "historical": 0.10,
     "SSP2-4.5": 0.20,
     "SSP5-8.5": 0.35,
 }
-
-DEFAULT_MAX_IMPACT = 0.15
 
 
 @dataclass(frozen=True, slots=True)
@@ -25,9 +23,11 @@ def compute_financial_impact(
     composite: ScoreBand,
     *,
     scenario: str,
-    max_impact: Mapping[str, float] = SCENARIO_MAX_IMPACT,
+    max_impact: Mapping[str, float] = SCENARIO_STRESS_FACTORS,
 ) -> FinancialImpact:
-    factor = max_impact.get(scenario, DEFAULT_MAX_IMPACT)
+    if scenario not in max_impact:
+        raise ValueError(f"cenário desconhecido: {scenario!r}")
+    factor = max_impact[scenario]
     central = -(composite.central / 100.0) * factor * 100.0
     band_low = -(composite.high / 100.0) * factor * 100.0
     band_high = -(composite.low / 100.0) * factor * 100.0

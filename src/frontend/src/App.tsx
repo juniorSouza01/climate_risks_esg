@@ -207,9 +207,24 @@ export default function App() {
 
         <main className="main">
           <div className="cards">
-            <ScoreCard label="Risco físico" band={selected?.physical ?? null} />
-            <ScoreCard label="Risco de transição" band={selected?.transition ?? null} />
-            <ScoreCard label="Score composto" band={selected?.composite ?? null} />
+            <ScoreCard
+              label="Risco físico"
+              band={selected?.physical ?? null}
+              availability={selected?.availability}
+              reason={selected?.reason}
+            />
+            <ScoreCard
+              label="Risco de transição"
+              band={selected?.transition ?? null}
+              availability={selected?.availability}
+              reason={selected?.reason}
+            />
+            <ScoreCard
+              label="Score composto"
+              band={selected?.composite ?? null}
+              availability={selected?.availability}
+              reason={selected?.reason}
+            />
           </div>
 
           {selected && (selected.physical_run || selected.transition_run) && (

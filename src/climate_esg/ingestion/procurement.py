@@ -2,15 +2,17 @@ from __future__ import annotations
 
 from typing import Any
 
+import httpx
+
 from climate_esg.ingestion.geocoding import only_digits
-from climate_esg.ingestion.http import get_client
+from climate_esg.ingestion.http import request_json
 
 GOV_SUPPLIER_URL = (
     "https://dadosabertos.compras.gov.br/modulo-fornecedor/1_consultarFornecedor"
 )
 
 
-def fetch_gov_supplier(cnpj: str, *, timeout: float = 20.0) -> dict[str, Any] | None:
+def fetch_gov_supplier(cnpj: str, *, timeout: float | None = None) -> dict[str, Any] | None:
     """Consulta o cadastro de fornecedor do Executivo Federal (Compras.gov, sem auth).
 
     Retorna None em erro/ausência de rede; {found: False} quando o CNPJ não consta;
@@ -19,13 +21,19 @@ def fetch_gov_supplier(cnpj: str, *, timeout: float = 20.0) -> dict[str, Any] | 
     digits = only_digits(cnpj)
     if len(digits) != 14:
         return None
-    resp = get_client().get(
-        GOV_SUPPLIER_URL, params={"cnpj": digits, "ativo": "true"}, timeout=timeout
-    )
-    if resp.status_code in (204, 404):
+    try:
+        payload = request_json(
+            "compras_gov",
+            GOV_SUPPLIER_URL,
+            params={"cnpj": digits, "ativo": "true"},
+            timeout=timeout,
+        )
+    except httpx.HTTPStatusError as exc:
+        if exc.response.status_code == 404:
+            return None
+        raise
+    if payload is None:
         return None
-    resp.raise_for_status()
-    payload = resp.json()
     results = payload.get("resultado") or []
     base = {"seal": "factual", "source": "compras.gov.br"}
     if not results:

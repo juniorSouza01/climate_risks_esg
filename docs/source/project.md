@@ -426,7 +426,7 @@ FastAPI, OAuth2 com escopos por persona (acionista, analista, auditor). Resposta
 
 ### 10.2. Dashboard
 
-React + TypeScript + Vite + Tailwind. Mapa via Mapbox GL ou Deck.gl (preferência por Deck.gl para overlays raster pesados). Recharts para gráficos. Stack pequena, deliberada — frontend não é o ponto onde inovamos.
+React + TypeScript + Vite + Tailwind. Mapa via Mapbox GL ou Deck.gl (preferência por Deck.gl para overlays raster pesados). Recharts para gráficos. Stack pequena, deliberada — frontend não é o ponto ondeanalise de risco climático global API inovamos.
 
 ---
 

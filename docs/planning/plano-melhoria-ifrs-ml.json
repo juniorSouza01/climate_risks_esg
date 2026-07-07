@@ -1,0 +1,618 @@
+{
+  "executive_summary": "O plano unifica as três lentes (robustez, ML/DS e domínio IFRS) em cinco fases sequenciais executáveis por 1 dev, local, com Postgres e o stack já instalado (Prefect, pandera, MLflow, xclim, sklearn). A Fase 1 mata a classe de falhas silenciosas — score vazio com exit 0, excepts que engolem tudo, cache degradado servido por 1h, associação de empresa errada — e valida as fronteiras de dados, porque nenhuma célula da matriz IFRS pode nascer sobre vazios indistinguíveis de \"sem risco\". A Fase 2 cria a matriz executiva de ~29 riscos como entidade de primeira classe (dim_risk + fact_risk_assessment + quantificação financeira por risco parametrizada contra a ROL real da CVM) e destrava o score físico ingerindo os SSP CMIP6 já baixáveis, com índices xclim e janelamento real por horizonte. A Fase 3 fecha o ciclo de gestão exigido por S1/S2: KRIs computados dos próprios dados com owner e threshold, controles com risco residual, proveniência formal e o relatório CBPS 01/02 arquivado por run com trilha de auditoria. As Fases 4 e 5 elevam o rigor progressivamente: bandas derivadas do ensemble CMIP6 e teoria de valores extremos, mapeamento probabilístico para a escala P×I 1-5 da matriz, Monte Carlo de perdas com curvas de dano calibradas em desastres brasileiros (S2iD), NLP local para transição e controvérsias, e MLflow registry com fit offline. Conflitos entre propostas foram resolvidos elegendo a entidade de risco da lente IFRS como espinha dorsal do schema, os gates de robustez como pré-requisito inegociável e o ML como refinamento incremental de números que hoje existem apenas de forma declarada. Ideias de alto custo e baixo retorno no contexto atual (CNN de downscaling, GNN de cadeia, GARCH, embeddings pgvector) foram descartadas ou adiadas com justificativa registrada.",
+  "phases": [
+    {
+      "name": "Fase 1 — Robustez: vazio vira erro, fronteiras validadas, rede de testes",
+      "goal": "Eliminar toda falha silenciosa da pilha (pipeline, dossiê, API, frontend) e blindar as fronteiras de dados, para que qualquer número futuro da matriz IFRS seja distinguível entre 'medido', 'não computado' e 'falhou' — pré-requisito de auditabilidade S1.",
+      "items": [
+        {
+          "title": "Gate anti-vazio nos flows + status de run",
+          "what": "Levantar RuntimeError em score_physical/score_transition/score_composite quando companies_scored < settings.min_companies_scored (novo campo, default 1) ou quando o cenário solicitado não existe em dim_scenario (hoje warning + exit 0). Migration 0011 adiciona status ('running'|'success'|'failed'|'empty') e finished_at em DimModelRun; lineage.py ganha finish_model_run(run_sk, status); services.py resolve 'último run' por max(run_sk) WHERE status='success' (corrige run falho sombreando run bom).",
+          "files": [
+            "/home/osney/Desktop/DEV/climate_risks_esg/pipelines/flows/compute_scores.py",
+            "/home/osney/Desktop/DEV/climate_risks_esg/src/climate_esg/config.py",
+            "/home/osney/Desktop/DEV/climate_risks_esg/src/climate_esg/db/models.py",
+            "/home/osney/Desktop/DEV/climate_risks_esg/src/climate_esg/db/migrations/versions/0011_run_status.py",
+            "/home/osney/Desktop/DEV/climate_risks_esg/src/climate_esg/governance/lineage.py",
+            "/home/osney/Desktop/DEV/climate_risks_esg/src/climate_esg/api/services.py"
+          ],
+          "source_lens": "consenso das 3 lentes"
+        },
+        {
+          "title": "API distingue 'não computado' de 'sem risco'",
+          "what": "Adicionar availability ('available'|'not_computed'|'no_data') e reason em ScoreEntry/CompanyScores; services.py preenche quando a banda física é None ('CMIP6 SSP não ingerido — física indisponível') e o composto herda o motivo; ScoreCard.tsx renderiza o motivo em vez do genérico 'sem dados neste cenário'. Campos novos opcionais na primeira versão para não quebrar o frontend em deploy desacoplado.",
+          "files": [
+            "/home/osney/Desktop/DEV/climate_risks_esg/src/climate_esg/api/schemas/scores.py",
+            "/home/osney/Desktop/DEV/climate_risks_esg/src/climate_esg/api/services.py",
+            "/home/osney/Desktop/DEV/climate_risks_esg/src/frontend/src/api.ts",
+            "/home/osney/Desktop/DEV/climate_risks_esg/src/frontend/src/components/ScoreCard.tsx"
+          ],
+          "source_lens": "robustez-engenharia + ifrs-dominio"
+        },
+        {
+          "title": "Fim de defaults e retornos {} silenciosos no modeling",
+          "what": "financial_impact.py: cenário desconhecido levanta KeyError (fim do default 0.15) e os fatores 0.10/0.20/0.35 viram constantes nomeadas com referência NGFS documentada. climate_financial_impact, supply_chain_climate_risk e predict_for_company passam a retornar resultado tipado com status ('ok'|'no_input'|'insufficient_universe'|'error') + reason; dossier.py propaga o status por seção; CompanyAnalytics.tsx mostra o motivo da seção ausente em vez de omitir o painel.",
+          "files": [
+            "/home/osney/Desktop/DEV/climate_risks_esg/src/climate_esg/modeling/financial_impact.py",
+            "/home/osney/Desktop/DEV/climate_risks_esg/src/climate_esg/modeling/climate_financial.py",
+            "/home/osney/Desktop/DEV/climate_risks_esg/src/climate_esg/modeling/supply_chain.py",
+            "/home/osney/Desktop/DEV/climate_risks_esg/src/climate_esg/modeling/analytics.py",
+            "/home/osney/Desktop/DEV/climate_risks_esg/src/climate_esg/search/dossier.py",
+            "/home/osney/Desktop/DEV/climate_risks_esg/src/frontend/src/components/CompanyAnalytics.tsx"
+          ],
+          "source_lens": "robustez-engenharia"
+        },
+        {
+          "title": "Auditoria honesta por run",
+          "what": "run_fact_counts reporta zeros explícitos (remover o 'if n:') e inclui FactFinancialImpact em _FACT_TABLES; validate_indicator_rows/validate_score_rows do pandera falham (ou exigem min_rows configurável) quando a lista é vazia, em vez de retornar em silêncio.",
+          "files": [
+            "/home/osney/Desktop/DEV/climate_risks_esg/src/climate_esg/governance/audit.py",
+            "/home/osney/Desktop/DEV/climate_risks_esg/src/climate_esg/quality/checks.py"
+          ],
+          "source_lens": "robustez-engenharia + ifrs-dominio"
+        },
+        {
+          "title": "Camada de resiliência HTTP única",
+          "what": "Nova função request_json(source, url, ...) em http.py com tenacity (3 tentativas, backoff exponencial, respeita Retry-After, nunca retry em 4xx exceto 429), timeout por fonte configurável em settings, log estruturado (fonte, status, latência, tentativa) e threading.Lock na init lazy do client. Migrar adaptabrasil, market_data, news_collector, geocoding, ibge, procurement e cvm; não tocar no esgf_client (já resiliente).",
+          "files": [
+            "/home/osney/Desktop/DEV/climate_risks_esg/src/climate_esg/ingestion/http.py",
+            "/home/osney/Desktop/DEV/climate_risks_esg/src/climate_esg/config.py",
+            "/home/osney/Desktop/DEV/climate_risks_esg/src/climate_esg/ingestion/adaptabrasil.py",
+            "/home/osney/Desktop/DEV/climate_risks_esg/src/climate_esg/ingestion/market_data.py",
+            "/home/osney/Desktop/DEV/climate_risks_esg/src/climate_esg/ingestion/news_collector.py",
+            "/home/osney/Desktop/DEV/climate_risks_esg/src/climate_esg/ingestion/geocoding.py",
+            "/home/osney/Desktop/DEV/climate_risks_esg/src/climate_esg/ingestion/procurement.py"
+          ],
+          "source_lens": "robustez-engenharia"
+        },
+        {
+          "title": "Cache do dossiê: single-flight, TTL degradado e limpeza",
+          "what": "pg_advisory_xact_lock(hash(key)) impede builds concorrentes da mesma key (thundering herd sobre 7 APIs); dossiê classificado como 'complete'|'degraded' (contando seções com status error) — degradado cacheia com TTL curto (300s) em vez de 3600s; DELETE de linhas expiradas no próprio get_or_build (ou comando CLI); dossier.errors vira lista estruturada {source, code, transient} sem repr de exceção interna; merge+commit do cache isolado com tratamento (GET não pode falhar por escrita de cache).",
+          "files": [
+            "/home/osney/Desktop/DEV/climate_risks_esg/src/climate_esg/search/dossier.py",
+            "/home/osney/Desktop/DEV/climate_risks_esg/src/climate_esg/cli/main.py"
+          ],
+          "source_lens": "robustez-engenharia"
+        },
+        {
+          "title": "Associação de empresa correta (correções determinísticas)",
+          "what": "Escapar %/_ no fallback ilike de _resolve_company_sk (LIKE injection); validar dígito verificador de CNPJ em classify_query; ampliar regex de ticker para cobrir B3SA3/M1TA34; _attach_market_live só anexa market data se o ticker resolvido cruzar com CNPJ/nome normalizado com confiança mínima, senão marca a seção 'unresolved'. Dado financeiro de outra empresa no dossiê é o pior cenário reputacional — a versão probabilística (rapidfuzz) fica para a Fase 5.",
+          "files": [
+            "/home/osney/Desktop/DEV/climate_risks_esg/src/climate_esg/search/dossier.py",
+            "/home/osney/Desktop/DEV/climate_risks_esg/src/climate_esg/ingestion/market_data.py"
+          ],
+          "source_lens": "robustez-engenharia + ml-ds-dl"
+        },
+        {
+          "title": "Falha ≠ ausência nas fontes externas",
+          "what": "news_collector checa content-type/status antes de resp.json() e retorna None (falha, controversy_ratio=None) vs [] (sem notícias) — GDELT em rate-limit deixa de parecer empresa 'limpa'; market_data loga e sinaliza 401/402 (token brapi ausente/expirado) distinto de 404; corrigir o bug semântico daily_returns recebendo PREÇOS (renomear para closing_prices ou calcular retornos de fato).",
+          "files": [
+            "/home/osney/Desktop/DEV/climate_risks_esg/src/climate_esg/ingestion/news_collector.py",
+            "/home/osney/Desktop/DEV/climate_risks_esg/src/climate_esg/ingestion/market_data.py"
+          ],
+          "source_lens": "robustez-engenharia"
+        },
+        {
+          "title": "Higiene de rede, segurança mínima e frontend defensivo",
+          "what": "CORS origins vindos de settings (incluindo a porta real 5174); rate-limit de 1 req/s + countrycodes=br no Nominatim (geocoding e loop geo refresh-assets); /health checa SELECT 1; API key simples via settings + rate limiting no /v1/search (API 'privada' hoje sem nenhuma auth); getJson do frontend com AbortController (30s) e corpo do erro na mensagem; error boundary em main.tsx; rollback em exceção no deps.py; segredos como SecretStr e warning explícito no startup para a senha default 'changeme_local_only'.",
+          "files": [
+            "/home/osney/Desktop/DEV/climate_risks_esg/src/climate_esg/api/main.py",
+            "/home/osney/Desktop/DEV/climate_risks_esg/src/climate_esg/config.py",
+            "/home/osney/Desktop/DEV/climate_risks_esg/src/climate_esg/ingestion/geocoding.py",
+            "/home/osney/Desktop/DEV/climate_risks_esg/src/climate_esg/cli/main.py",
+            "/home/osney/Desktop/DEV/climate_risks_esg/src/climate_esg/api/deps.py",
+            "/home/osney/Desktop/DEV/climate_risks_esg/src/frontend/src/api.ts",
+            "/home/osney/Desktop/DEV/climate_risks_esg/src/frontend/src/main.tsx"
+          ],
+          "source_lens": "robustez-engenharia"
+        },
+        {
+          "title": "Rede de testes de regressão + CI com integração",
+          "what": "Teste de integração 'run vazio DEVE falhar' (compute_scores contra banco seedado sem fact_climate_indicator → flow falha com status failed/empty) — trava o retorno do bug central; unit tests para climate_financial, supply_chain, analytics (CNPJ com/sem máscara — normalizar ambos os lados antes de cnpjs.index), cvm parsing (escala MIL, dupla contagem de D&A filtrando subtotais por nível de conta, taxa de match CVM↔DimCompany logada), classify_query/normalize_key/cache TTL com respx; property-based tests (hypothesis) para as invariantes de ScoreBand/normalize_linear/weighted_score_band/compose_score; CI passa a rodar -m integration (Postgres já provisionado) com --cov-fail-under=50.",
+          "files": [
+            "/home/osney/Desktop/DEV/climate_risks_esg/tests/integration/test_compute_scores_empty.py",
+            "/home/osney/Desktop/DEV/climate_risks_esg/tests/unit/test_climate_financial.py",
+            "/home/osney/Desktop/DEV/climate_risks_esg/tests/unit/test_supply_chain.py",
+            "/home/osney/Desktop/DEV/climate_risks_esg/tests/unit/test_analytics.py",
+            "/home/osney/Desktop/DEV/climate_risks_esg/tests/unit/test_cvm_parsing.py",
+            "/home/osney/Desktop/DEV/climate_risks_esg/tests/unit/test_dossier_classify.py",
+            "/home/osney/Desktop/DEV/climate_risks_esg/tests/unit/test_scoring_properties.py",
+            "/home/osney/Desktop/DEV/climate_risks_esg/.github/workflows/ci.yml",
+            "/home/osney/Desktop/DEV/climate_risks_esg/Makefile"
+          ],
+          "ml_technique": "property-based testing (hypothesis) sobre invariantes matemáticas das primitivas de score",
+          "source_lens": "robustez-engenharia + ml-ds-dl"
+        },
+        {
+          "title": "Validação nas fronteiras de dados (pandera/pydantic)",
+          "what": "Novo quality/boundaries.py validando payload AdaptaBrasil (valor em [0,1] validado UMA vez na ingestão — elimina a heurística v*100 duplicada em analytics.py e SearchPanel.tsx), brapi (preço>0, market_cap plausível) e DFP CVM (escala MIL, contas esperadas presentes); cf_validation ganha checagem do atributo units do dataset, fração de NaN e monotonicidade do eixo tempo.",
+          "files": [
+            "/home/osney/Desktop/DEV/climate_risks_esg/src/climate_esg/quality/boundaries.py",
+            "/home/osney/Desktop/DEV/climate_risks_esg/src/climate_esg/ingestion/adaptabrasil.py",
+            "/home/osney/Desktop/DEV/climate_risks_esg/src/climate_esg/modeling/analytics.py",
+            "/home/osney/Desktop/DEV/climate_risks_esg/src/climate_esg/ingestion/cf_validation.py",
+            "/home/osney/Desktop/DEV/climate_risks_esg/src/frontend/src/components/SearchPanel.tsx"
+          ],
+          "source_lens": "robustez-engenharia"
+        },
+        {
+          "title": "Contratos tipados no DossierOut",
+          "what": "Substituir os 9 campos dict[str,Any] de DossierOut por modelos Pydantic tipados (ClimateFinancialOut, SupplyChainOut, PredictionsOut com status+reason) e espelhar em api.ts — validação em runtime na saída do backend elimina a classe de crash 'band.central.toFixed em null' no frontend.",
+          "files": [
+            "/home/osney/Desktop/DEV/climate_risks_esg/src/climate_esg/api/schemas/scores.py",
+            "/home/osney/Desktop/DEV/climate_risks_esg/src/climate_esg/search/dossier.py",
+            "/home/osney/Desktop/DEV/climate_risks_esg/src/frontend/src/api.ts"
+          ],
+          "source_lens": "robustez-engenharia"
+        },
+        {
+          "title": "Idempotência e integridade do banco",
+          "what": "ingest_adaptabrasil_exposure com upsert/delete-insert por chave natural (asset×hazard×scenario×horizon); materialize_indicators com dedupe por hash de conteúdo + comando CLI de pruning de runs órfãos; to_zarr em diretório temporário + rename atômico; seed.py não destrutivo (nunca sobrescrever lat/long/geom/ibge_code refinados por geo refresh-assets, com teste de regressão rodando seed 2x); migration de CHECK constraints (scores e coverage em [0,100], band_low<=score<=band_high, lat/long em faixa) precedida de dedupe/limpeza dos dados legados com backup.",
+          "files": [
+            "/home/osney/Desktop/DEV/climate_risks_esg/src/climate_esg/ingestion/adaptabrasil.py",
+            "/home/osney/Desktop/DEV/climate_risks_esg/pipelines/flows/ingest_cmip6.py",
+            "/home/osney/Desktop/DEV/climate_risks_esg/src/climate_esg/db/seed.py",
+            "/home/osney/Desktop/DEV/climate_risks_esg/tests/unit/test_seed_idempotent.py",
+            "/home/osney/Desktop/DEV/climate_risks_esg/src/climate_esg/db/migrations/versions/0012_check_constraints.py",
+            "/home/osney/Desktop/DEV/climate_risks_esg/src/climate_esg/cli/main.py"
+          ],
+          "source_lens": "robustez-engenharia"
+        },
+        {
+          "title": "Fonte única de verdade metodológica",
+          "what": "Eliminar o HAZARD_WEIGHTS divergente de analytics.py importando de physical_config.py (docstring com procedência ADR-0005) — duas metodologias incompatíveis coexistindo é inaceitável em auditoria; centralizar os cortes de severidade 33/66 em constante única no backend e em util.ts único no frontend (remover triplicação em SearchPanel/CompanyAnalytics).",
+          "files": [
+            "/home/osney/Desktop/DEV/climate_risks_esg/src/climate_esg/modeling/physical_config.py",
+            "/home/osney/Desktop/DEV/climate_risks_esg/src/climate_esg/modeling/analytics.py",
+            "/home/osney/Desktop/DEV/climate_risks_esg/src/frontend/src/components/util.ts"
+          ],
+          "source_lens": "robustez-engenharia + ml-ds-dl"
+        }
+      ]
+    },
+    {
+      "name": "Fase 2 — Fundação da matriz IFRS + dados físicos reais (CMIP6 SSP)",
+      "goal": "A matriz executiva de ~29 riscos vira entidade de primeira classe no star schema, com quantificação financeira por risco parametrizada contra a ROL real da CVM e 3 cenários obrigatórios; em paralelo, ingerir os SSP CMIP6 (pipeline já pronto) com índices xclim e janelamento por horizonte para destravar as linhas de risco físico.",
+      "items": [
+        {
+          "title": "Schema da matriz: dim_risk + fact_risk_assessment",
+          "what": "Migration com dim_risk (risk_id natural ex. 'FIS-AG-01', source enum SASB/EFRAG/CDP/IPCC_AR6/ADAPTABRASIL/NDC_BR/CLIENTE, thematic, description, eesg_category, ifrs_category enum fisico_agudo/fisico_cronico/transicao/nao_climatico/operacional, erm_category, is_opportunity, risk_event, horizon enum, sector_reference, cbps_link enum CBPS_01/CBPS_02) e fact_risk_assessment (risk_sk, company_sk, scenario_sk, run_sk, probability/impact inerente 1-5 com CHECK, score P×I, classification enum, campos residuais, owner, action_plan_md), com UNIQUE de grão incluindo run_sk (padrão da migration 0005).",
+          "files": [
+            "/home/osney/Desktop/DEV/climate_risks_esg/src/climate_esg/db/models.py",
+            "/home/osney/Desktop/DEV/climate_risks_esg/src/climate_esg/db/migrations/versions/0013_risk_matrix.py"
+          ],
+          "source_lens": "ifrs-dominio"
+        },
+        {
+          "title": "Catálogo versionado dos ~29 riscos + seed idempotente",
+          "what": "reference_risks.yaml com os riscos da consultoria Martinelli ESG (físicos agudos: chuva>20mm bloqueando acessos, inundação, colapso viário; crônicos: estresse hídrico, temperatura, geotecnia; sistêmicos; transição: SBCE/EU ETS, regulação energética, tecnologia, litígio/greenwashing; oportunidades: biogás, economia circular, frota verde, mercado de carbono) com fonte, categorias e avaliação inerente inicial. Seed separado do seed.py principal, só insere se ausente (nunca merge cego), invocável via CLI 'climate-esg db seed-risk-matrix'. Teste unitário do parser/validador (29 riscos, enums válidos, P×I=score, unicidade de risk_id).",
+          "files": [
+            "/home/osney/Desktop/DEV/climate_risks_esg/data/risk_matrix/reference_risks.yaml",
+            "/home/osney/Desktop/DEV/climate_risks_esg/src/climate_esg/db/seed_risk_matrix.py",
+            "/home/osney/Desktop/DEV/climate_risks_esg/src/climate_esg/cli/main.py",
+            "/home/osney/Desktop/DEV/climate_risks_esg/tests/unit/test_risk_matrix_seed.py"
+          ],
+          "source_lens": "ifrs-dominio"
+        },
+        {
+          "title": "API da matriz: /v1/risks e /v1/companies/{sk}/risk-matrix",
+          "what": "Novo router com catálogo dim_risk (filtros por categoria IFRS/fonte/horizonte) e matriz por empresa (identificação + inerente + residual + impacto financeiro + KRI + owner) resolvida pelo último run com status='success' (usa a coluna criada na Fase 1). Schemas Pydantic estritos (RiskRow, RiskMatrixOut), sem dict[str,Any]. Teste de integração incluído no CI.",
+          "files": [
+            "/home/osney/Desktop/DEV/climate_risks_esg/src/climate_esg/api/routes/risks.py",
+            "/home/osney/Desktop/DEV/climate_risks_esg/src/climate_esg/api/schemas/risks.py",
+            "/home/osney/Desktop/DEV/climate_risks_esg/src/climate_esg/api/services.py",
+            "/home/osney/Desktop/DEV/climate_risks_esg/src/climate_esg/api/main.py",
+            "/home/osney/Desktop/DEV/climate_risks_esg/tests/integration/test_api_risk_matrix.py"
+          ],
+          "source_lens": "ifrs-dominio"
+        },
+        {
+          "title": "Frontend RiskMatrix.tsx",
+          "what": "Evoluir o padrão de célula colorida do Heatmap.tsx para matriz risco×cenário (célula = classificação baixo/moderado/alto/crítico via severityColor unificado na Fase 1), toggle inerente/residual, drawer lateral por risco com descrição, evento, quantificação, KRI, owner e selo de qualidade do dado. Nova aba no App.tsx; tipos em api.ts espelhando RiskMatrixOut.",
+          "files": [
+            "/home/osney/Desktop/DEV/climate_risks_esg/src/frontend/src/components/RiskMatrix.tsx",
+            "/home/osney/Desktop/DEV/climate_risks_esg/src/frontend/src/App.tsx",
+            "/home/osney/Desktop/DEV/climate_risks_esg/src/frontend/src/api.ts"
+          ],
+          "source_lens": "ifrs-dominio"
+        },
+        {
+          "title": "Ingestão CMIP6 SSP de fato",
+          "what": "Registrar deployments Prefect para os 10 wget scripts existentes (pr/tasmax/sfcWindmax × ssp245/ssp585 × membros r120/r121/r132) com do_validate/do_promote/do_materialize=true e executar a ingestão local (recorte ao bbox de SC já no bronze→prata para caber em disco/RAM). A idempotência do materialize vem da Fase 1. Resolve a causa-raiz do score físico/composto vazio.",
+          "files": [
+            "/home/osney/Desktop/DEV/climate_risks_esg/pipelines/deployments/prefect.yaml",
+            "/home/osney/Desktop/DEV/climate_risks_esg/pipelines/flows/ingest_cmip6.py"
+          ],
+          "source_lens": "ml-ds-dl + ifrs-dominio"
+        },
+        {
+          "title": "Janelamento do score físico por horizonte",
+          "what": "HORIZON_WINDOWS em physical_config.py (curto 2026-2030, médio 2031-2040, longo 2041-2050); score_physical filtra fact_climate_indicator por faixa de date_sk derivada do horizon_year em vez de média sobre todo o histórico — hoje 2030/2040/2050 recebem inputs idênticos e a dimensão horizonte da matriz é fictícia (requisito IFRS S2 §22). Teste unitário com indicadores sintéticos em duas janelas provando scores distintos.",
+          "files": [
+            "/home/osney/Desktop/DEV/climate_risks_esg/pipelines/flows/compute_scores.py",
+            "/home/osney/Desktop/DEV/climate_risks_esg/src/climate_esg/modeling/physical_config.py",
+            "/home/osney/Desktop/DEV/climate_risks_esg/tests/unit/test_horizon_windowing.py"
+          ],
+          "source_lens": "consenso das 3 lentes"
+        },
+        {
+          "title": "Índices climáticos ETCCDI via xclim",
+          "what": "Substituir a série mensal smoke-grade de climate_indices.py por índices por hazard sobre as séries diárias do Zarr prata: dias com pr>20mm/ano (evento de bloqueio de acesso da matriz — vira KRI na Fase 3), Rx5day (enchente), TX90p/dias>35°C (calor), máximo anual de sfcWindmax (vento), materializados em fact_climate_indicator por ativo × cenário × membro × janela de horizonte. xclim já está no pyproject.",
+          "files": [
+            "/home/osney/Desktop/DEV/climate_risks_esg/src/climate_esg/modeling/climate_indices.py",
+            "/home/osney/Desktop/DEV/climate_risks_esg/pipelines/flows/ingest_cmip6.py",
+            "/home/osney/Desktop/DEV/climate_risks_esg/src/climate_esg/modeling/physical_config.py"
+          ],
+          "ml_technique": "Índices climáticos de excedência de limiar ETCCDI (xclim: wetdays>20mm, Rx5day, TX90p, máximos anuais)",
+          "source_lens": "ml-ds-dl + ifrs-dominio"
+        },
+        {
+          "title": "Papéis formais de cenário (base/estressado/severo)",
+          "what": "Coluna scenario_role em dim_scenario via migration; seed mapeia historical→base, SSP2-4.5→estressado, SSP5-8.5→severo, com nota para migrar base a SSP1-2.6/NGFS quando houver dado ingerível. O default silencioso 0.15 já foi removido na Fase 1 — aqui entra só a semântica regulatória.",
+          "files": [
+            "/home/osney/Desktop/DEV/climate_risks_esg/src/climate_esg/db/models.py",
+            "/home/osney/Desktop/DEV/climate_risks_esg/src/climate_esg/db/migrations/versions/0014_scenario_role.py",
+            "/home/osney/Desktop/DEV/climate_risks_esg/src/climate_esg/db/seed.py"
+          ],
+          "source_lens": "ifrs-dominio"
+        },
+        {
+          "title": "fact_risk_financial_impact no grão por risco",
+          "what": "Nova tabela no grão (risk_sk, company_sk, scenario_sk, horizon_year, run_sk) com as colunas da matriz: revenue_exposed_brl, loss_pct_low/central/high, incremental_opex_brl, incremental_capex_brl, fines_penalties_brl, insurance_recovery_brl, net_impact_brl_low/central/high, assumptions_md, provenance enum ('reportado'|'inferido'|'previsto'|'curado'). Incluída em audit._FACT_TABLES junto com o FactFinancialImpact legado. Absorve a ideia de quantis persistidos da proposta ML (low/central/high ≈ P10/P50/P90 quando o Monte Carlo da Fase 5 chegar).",
+          "files": [
+            "/home/osney/Desktop/DEV/climate_risks_esg/src/climate_esg/db/models.py",
+            "/home/osney/Desktop/DEV/climate_risks_esg/src/climate_esg/db/migrations/versions/0014_scenario_role.py",
+            "/home/osney/Desktop/DEV/climate_risks_esg/src/climate_esg/governance/audit.py"
+          ],
+          "source_lens": "ifrs-dominio + ml-ds-dl"
+        },
+        {
+          "title": "Faixas de impacto parametrizadas vs ROL (impact_bands.py)",
+          "what": "Dado net_impact e a receita líquida real da CVM (CvmFinancials.revenue, escala MIL já tratada), classificar em faixas (<0,1% ROL insignificante / 0,1-0,5% baixo / 0,5-2% moderado / 2-5% alto / >5% crítico — thresholds em config versionada, não hardcoded). Reusar canais de climate_financial.py como estimadores de revenue_exposed/loss_pct por risco físico e o sub-score policy da transição como driver de fines_penalties (SBCE/EU ETS). Testes de borda com receitas sintéticas Döhler/Schulz.",
+          "files": [
+            "/home/osney/Desktop/DEV/climate_risks_esg/src/climate_esg/modeling/impact_bands.py",
+            "/home/osney/Desktop/DEV/climate_risks_esg/src/climate_esg/modeling/climate_financial.py",
+            "/home/osney/Desktop/DEV/climate_risks_esg/tests/unit/test_impact_bands.py"
+          ],
+          "source_lens": "ifrs-dominio"
+        },
+        {
+          "title": "Task compute_risk_financial + persistência do dossiê + portfolio ponderado",
+          "what": "Para cada linha de fact_risk_assessment × 3 cenários obrigatórios, computar e persistir fact_risk_financial_impact com run_sk; FALHAR (não pular) quando um dos 3 cenários não tem dado — completude da análise de cenários do S2. Persistir também o climate_financial_impact do dossiê (hoje efêmero em cache TTL 1h) no fato com run_sk e provenance. Trocar a agregação do portfolio de média simples de composite para ponderação por receita/EBITDA exposta.",
+          "files": [
+            "/home/osney/Desktop/DEV/climate_risks_esg/pipelines/flows/compute_scores.py",
+            "/home/osney/Desktop/DEV/climate_risks_esg/src/climate_esg/search/dossier.py",
+            "/home/osney/Desktop/DEV/climate_risks_esg/src/climate_esg/api/services.py"
+          ],
+          "source_lens": "ifrs-dominio + ml-ds-dl"
+        },
+        {
+          "title": "Inputs de transição curados por CNPJ + runbook Döhler",
+          "what": "Mover COMPANY_TRANSITION_INPUTS do dict hardcoded por company_sk (dependente da ordem de seed) para data/curated/transition_inputs.yaml chaveado por CNPJ, com fonte e data por valor (provenance='curado'); empresa sem input recebe status 'not_computed' explícito no flow. Criar o runbook Döhler prometido no ADR-0004 e nunca escrito: estratégia de dados de transição para capital fechado (relatório voluntário, CDP se houver, curadoria declarada como limitação no relatório CBPS).",
+          "files": [
+            "/home/osney/Desktop/DEV/climate_risks_esg/data/curated/transition_inputs.yaml",
+            "/home/osney/Desktop/DEV/climate_risks_esg/src/climate_esg/modeling/transition_config.py",
+            "/home/osney/Desktop/DEV/climate_risks_esg/pipelines/flows/compute_scores.py",
+            "/home/osney/Desktop/DEV/climate_risks_esg/docs/runbooks/data_sources_dohler.md"
+          ],
+          "source_lens": "ifrs-dominio + robustez-engenharia"
+        },
+        {
+          "title": "Quantificação em faixa e 3 cenários lado a lado no frontend",
+          "what": "Na drawer do RiskMatrix.tsx e no CompanyAnalytics.tsx, exibir a quantificação por risco como faixa low/central/high (princípio 'score é faixa'), badge da faixa vs ROL, comparação lado a lado dos 3 cenários (hoje o usuário vê um por vez) e coluna de premissas, reusando fmtBRL unificado.",
+          "files": [
+            "/home/osney/Desktop/DEV/climate_risks_esg/src/frontend/src/components/RiskMatrix.tsx",
+            "/home/osney/Desktop/DEV/climate_risks_esg/src/frontend/src/components/CompanyAnalytics.tsx",
+            "/home/osney/Desktop/DEV/climate_risks_esg/src/frontend/src/api.ts"
+          ],
+          "source_lens": "ifrs-dominio"
+        }
+      ]
+    },
+    {
+      "name": "Fase 3 — Gestão de risco: KRIs, controles, residual e relatório CBPS 01/02",
+      "goal": "Fechar o ciclo identificação→avaliação→quantificação→resposta→residual exigido pela matriz: KRIs computados dos dados da própria plataforma com owner e threshold, risco residual derivado de controles, proveniência formal por célula e o relatório de conformidade CBPS arquivado por run com trilha de auditoria completa (CVM 193/2023).",
+      "items": [
+        {
+          "title": "Schema de KRIs e controles",
+          "what": "Migration com dim_kri (kri_id, name, metric_source enum 'cmip6_wetdays_gt20mm'|'coverage_pct'|'controversy_ratio'|'chain_risk_index'|'production_at_risk_pct_ebitda'|'habilitado_licitar', unit, threshold_warning/breach, direction, owner, review_frequency, risk_sk FK), fact_kri_value (kri_sk, company_sk, asset_sk nullable, run_sk, value, status ok/warning/breach, computed_at) e dim_control (control_id, risk_sk, company_sk, description, effectiveness 0-1 com CHECK, owner, due_date, status). Seed via reference_kris.yaml ligando KRIs aos 29 riscos (ex.: colapso viário → dias pr>20mm com threshold da consultoria).",
+          "files": [
+            "/home/osney/Desktop/DEV/climate_risks_esg/src/climate_esg/db/models.py",
+            "/home/osney/Desktop/DEV/climate_risks_esg/src/climate_esg/db/migrations/versions/0015_kri_controls.py",
+            "/home/osney/Desktop/DEV/climate_risks_esg/data/risk_matrix/reference_kris.yaml",
+            "/home/osney/Desktop/DEV/climate_risks_esg/src/climate_esg/db/seed_risk_matrix.py"
+          ],
+          "source_lens": "ifrs-dominio"
+        },
+        {
+          "title": "Computadores de KRI + task compute_kris",
+          "what": "modeling/kri.py com um computador por metric_source lendo dados já existentes (dias pr>20mm dos índices xclim da Fase 2, coverage_pct de fact_physical_risk_score, controversy_ratio do GDELT, chain_risk_index/production_at_risk de supply_chain, habilitado_licitar de procurement). Task compute_kris no flow grava fact_kri_value com run_sk e status por threshold; breach gera log estruturado/evento (embrião de alerting) em vez do anti-padrão ValueError que aborta a transação inteira.",
+          "files": [
+            "/home/osney/Desktop/DEV/climate_risks_esg/src/climate_esg/modeling/kri.py",
+            "/home/osney/Desktop/DEV/climate_risks_esg/pipelines/flows/compute_scores.py",
+            "/home/osney/Desktop/DEV/climate_risks_esg/tests/unit/test_kri.py"
+          ],
+          "ml_technique": "Contagem de excedência de limiar sobre séries CMIP6; evolução na Fase 4 para thresholds estatísticos (z-score robusto sobre histórico de fact_kri_value)",
+          "source_lens": "ifrs-dominio"
+        },
+        {
+          "title": "Risco residual computado",
+          "what": "modeling/residual.py: residual = inerente × (1 − max_effectiveness dos controles ativos do risco/empresa), preenchendo probability/impact/score/classification_residual em fact_risk_assessment no MESMO run_sk do inerente (comparabilidade auditável). Sem controle cadastrado, residual = inerente com flag 'sem_controle' — nunca vazio silencioso. Aplicar o mesmo fator ao impacto financeiro.",
+          "files": [
+            "/home/osney/Desktop/DEV/climate_risks_esg/src/climate_esg/modeling/residual.py",
+            "/home/osney/Desktop/DEV/climate_risks_esg/pipelines/flows/compute_scores.py",
+            "/home/osney/Desktop/DEV/climate_risks_esg/tests/unit/test_residual.py"
+          ],
+          "source_lens": "ifrs-dominio + ml-ds-dl"
+        },
+        {
+          "title": "API e frontend de KRIs",
+          "what": "Endpoints /v1/companies/{sk}/kris (valor atual, threshold, status, owner, série por run) e /v1/risks/{risk_id}/controls; KriPanel.tsx com semáforo ok/warning/breach e owner; o toggle inerente/residual do RiskMatrix.tsx passa a ler os campos residuais reais.",
+          "files": [
+            "/home/osney/Desktop/DEV/climate_risks_esg/src/climate_esg/api/routes/risks.py",
+            "/home/osney/Desktop/DEV/climate_risks_esg/src/climate_esg/api/schemas/risks.py",
+            "/home/osney/Desktop/DEV/climate_risks_esg/src/frontend/src/components/KriPanel.tsx",
+            "/home/osney/Desktop/DEV/climate_risks_esg/src/frontend/src/components/RiskMatrix.tsx"
+          ],
+          "source_lens": "ifrs-dominio"
+        },
+        {
+          "title": "Proveniência formal e sources reais",
+          "what": "Formalizar o enum de qualidade de dado ('reportado'|'inferido'|'previsto'|'curado') mapeando os selos já usados em climate_financial/supply_chain/analytics para essa taxonomia (requisito S1 de explicitar julgamentos e estimativas); corrigir sources=[] hardcoded em compute_scores.py preenchendo FactScoreExplanation com proveniência real (dataset, versão via hash_data_version de lineage.py, data de ingestão).",
+          "files": [
+            "/home/osney/Desktop/DEV/climate_risks_esg/pipelines/flows/compute_scores.py",
+            "/home/osney/Desktop/DEV/climate_risks_esg/src/climate_esg/governance/lineage.py",
+            "/home/osney/Desktop/DEV/climate_risks_esg/src/climate_esg/modeling/climate_financial.py",
+            "/home/osney/Desktop/DEV/climate_risks_esg/src/climate_esg/modeling/supply_chain.py"
+          ],
+          "source_lens": "ifrs-dominio"
+        },
+        {
+          "title": "Gerador de relatório CBPS 01/02 arquivado por run",
+          "what": "governance/cbps_report.py: dado (company_sk, run_sk), renderiza relatório Markdown/HTML nos 4 pilares CBPS 01 (governança: owners/KRIs; estratégia: matriz por cenário/horizonte com narrativas base/estressado/severo; gestão de riscos: inerente→quantificação→residual com controles; métricas e metas: KRIs, faixas vs ROL, coverage_pct) e categorias CBPS 02 (físico agudo/crônico; transição política-legal/tecnologia/mercado/reputação), com seção obrigatória de limitações (% da matriz por tier de proveniência, cenários sem dado) e apêndice de auditoria (run_sk, git commit, hash de dados, contagens com zeros). Template Jinja2 estendendo model_cards.py; arquivado em data/reports/{company}/{run_sk}.md; CLI 'climate-esg report cbps' + endpoint GET determinístico por run; teste de integração validando seções obrigatórias e os 3 cenários. Model cards passam a ser persistidos por run com metodologia, premissas e limitações.",
+          "files": [
+            "/home/osney/Desktop/DEV/climate_risks_esg/src/climate_esg/governance/cbps_report.py",
+            "/home/osney/Desktop/DEV/climate_risks_esg/src/climate_esg/governance/model_cards.py",
+            "/home/osney/Desktop/DEV/climate_risks_esg/src/climate_esg/governance/templates/cbps_report.md.j2",
+            "/home/osney/Desktop/DEV/climate_risks_esg/src/climate_esg/cli/main.py",
+            "/home/osney/Desktop/DEV/climate_risks_esg/src/climate_esg/api/routes/companies.py",
+            "/home/osney/Desktop/DEV/climate_risks_esg/tests/integration/test_cbps_report.py"
+          ],
+          "source_lens": "ifrs-dominio + ml-ds-dl"
+        },
+        {
+          "title": "Observabilidade: relatório de qualidade por run e MLflow persistente",
+          "what": "quality/report.py computando por ingestão/score (linhas gravadas, % nulos, cobertura por empresa/variável, fontes usadas), persistido como MÉTRICAS no MLflow (hoje 126 runs só com params) e exposto em GET /v1/runs/{run_sk}/quality; volume para MLFLOW_TRACKING_URI no docker-compose (hoje linhagem se perde a cada recreate); structlog com campos (source, operation, status_code, transient, latency_ms) em toda falha do dossiê/ingestão; _log_mlflow movido para depois do commit (elimina dual-write não atômico).",
+          "files": [
+            "/home/osney/Desktop/DEV/climate_risks_esg/src/climate_esg/quality/report.py",
+            "/home/osney/Desktop/DEV/climate_risks_esg/src/climate_esg/governance/lineage.py",
+            "/home/osney/Desktop/DEV/climate_risks_esg/src/climate_esg/api/routes/companies.py",
+            "/home/osney/Desktop/DEV/climate_risks_esg/docker-compose.yml",
+            "/home/osney/Desktop/DEV/climate_risks_esg/src/climate_esg/search/dossier.py"
+          ],
+          "source_lens": "robustez-engenharia"
+        }
+      ]
+    },
+    {
+      "name": "Fase 4 — Incerteza estatística honesta e calibração dos scores",
+      "goal": "Substituir toda banda heurística (base 5 + spread + penalidade; ×0.5/×1.6) por incerteza derivada de dados — ensemble CMIP6, teoria de valores extremos e conformal prediction — e ancorar a escala P×I 1-5 da matriz em probabilidades de excedência defensáveis perante asseguração externa.",
+      "items": [
+        {
+          "title": "Bias correction dos campos CMIP6",
+          "what": "Corrigir EC-Earth3 contra observação local (ERA5 ou BR-DWGD/INMET Joinville, download único) via xclim.sdba antes do cálculo de índices — sem isso os limiares absolutos (20mm, 35°C) do GCM bruto de ~100km não têm significado local e o KRI de colapso viário fica descalibrado.",
+          "files": [
+            "/home/osney/Desktop/DEV/climate_risks_esg/src/climate_esg/modeling/bias_correction.py",
+            "/home/osney/Desktop/DEV/climate_risks_esg/src/climate_esg/ingestion/reanalysis.py",
+            "/home/osney/Desktop/DEV/climate_risks_esg/pipelines/flows/ingest_cmip6.py"
+          ],
+          "ml_technique": "Quantile mapping (QDM/EQM via xclim.sdba) treinado no período histórico sobreposto, aplicado aos SSP",
+          "source_lens": "ml-ds-dl"
+        },
+        {
+          "title": "Módulo de extremos (GEV/POT)",
+          "what": "Ajustar GEV (máximos anuais) e POT/GPD (excessos sobre limiar) por ativo × hazard × cenário sobre pr diário e sfcWindmax corrigidos, produzindo probabilidade anual de excedência e período de retorno — preenche FactHazardExposure.return_period (hoje NULL) e substitui a normalização linear 'chute' de physical_config para enchente/vento, com diagnóstico QQ-plot por membro.",
+          "files": [
+            "/home/osney/Desktop/DEV/climate_risks_esg/src/climate_esg/modeling/extremes.py",
+            "/home/osney/Desktop/DEV/climate_risks_esg/src/climate_esg/modeling/physical_risk.py",
+            "/home/osney/Desktop/DEV/climate_risks_esg/pipelines/flows/compute_scores.py",
+            "/home/osney/Desktop/DEV/climate_risks_esg/tests/unit/test_extremes.py"
+          ],
+          "ml_technique": "Teoria de valores extremos: GEV via L-moments e POT/GPD (scipy.stats genextreme/genpareto)",
+          "source_lens": "ml-ds-dl"
+        },
+        {
+          "title": "Bandas P10/P50/P90 do ensemble multi-membro",
+          "what": "Computar o score físico separadamente por membro (r120/r121/r132) × cenário e usar quantis empíricos como low/central/high do ScoreBand, substituindo base_uncertainty=5 + coverage_penalty em weighted_score_band. Manter a assinatura de ScoreBand para não quebrar API/frontend — a banda vira intervalo probabilístico, linguagem que auditoria e IFRS S2 entendem.",
+          "files": [
+            "/home/osney/Desktop/DEV/climate_risks_esg/src/climate_esg/modeling/scoring.py",
+            "/home/osney/Desktop/DEV/climate_risks_esg/src/climate_esg/modeling/physical_risk.py",
+            "/home/osney/Desktop/DEV/climate_risks_esg/pipelines/flows/compute_scores.py",
+            "/home/osney/Desktop/DEV/climate_risks_esg/tests/unit/test_scoring.py"
+          ],
+          "ml_technique": "Propagação de incerteza por ensemble multi-membro CMIP6 (quantis empíricos inter-membro)",
+          "source_lens": "ml-ds-dl"
+        },
+        {
+          "title": "Composição físico×transição por Monte Carlo",
+          "what": "Substituir compose_score linear (assume correlação perfeita, placeholder admitido em docstring mas exposto em produção) por amostragem dos pilares com correlação parametrizada (default 0.3; sensibilidade 0/0.5/1.0 registrada no MLflow e no model card — auditoria vai perguntar por esse número), reportando quantis da distribuição composta; flag methodology exposta na API.",
+          "files": [
+            "/home/osney/Desktop/DEV/climate_risks_esg/src/climate_esg/modeling/scoring.py",
+            "/home/osney/Desktop/DEV/climate_risks_esg/src/climate_esg/api/services.py",
+            "/home/osney/Desktop/DEV/climate_risks_esg/src/climate_esg/api/schemas/scores.py"
+          ],
+          "ml_technique": "Monte Carlo com cópula gaussiana simples entre pilares + análise de sensibilidade da correlação",
+          "source_lens": "ml-ds-dl"
+        },
+        {
+          "title": "Mapeamento probabilístico para a escala P×I 1-5 da matriz",
+          "what": "modeling/matrix_mapping.py: converter score contínuo 0-100 + banda em Probabilidade 1-5 ancorada em probabilidade anual de excedência da EVT (ex.: RP>100a=1 … RP<5a=5) e Impacto 1-5 ancorado nas faixas vs ROL da Fase 2, gerando Score Inerente P×I e Classificação com banda propagada — atualiza fact_risk_assessment com provenance='previsto', substituindo gradualmente a avaliação declarada da consultoria (que permanece como baseline 'curado').",
+          "files": [
+            "/home/osney/Desktop/DEV/climate_risks_esg/src/climate_esg/modeling/matrix_mapping.py",
+            "/home/osney/Desktop/DEV/climate_risks_esg/src/climate_esg/api/routes/risks.py",
+            "/home/osney/Desktop/DEV/climate_risks_esg/tests/unit/test_matrix_mapping.py"
+          ],
+          "ml_technique": "Calibração probabilística: bins de probabilidade ancorados em períodos de retorno EVT; impacto ancorado em % ROL com propagação de banda por amostragem",
+          "source_lens": "ml-ds-dl + ifrs-dominio"
+        },
+        {
+          "title": "Calibração bayesiana dos pesos de hazard",
+          "what": "Recalibrar os HAZARD_WEIGHTS (já unificados na Fase 1) com dados observados de frequência/severidade por hazard em SC (S2iD/CEMADEN — eventos 2008/2011/2017) via atualização bayesiana simples de priors da literatura NGFS/TCFD, com análise de sensibilidade dos pesos publicada no model card. Automatizar o critério de aceite do ADR-0004 (coerência de sinal com a enchente de 2017 em Joinville) como teste.",
+          "files": [
+            "/home/osney/Desktop/DEV/climate_risks_esg/src/climate_esg/modeling/hazard_calibration.py",
+            "/home/osney/Desktop/DEV/climate_risks_esg/src/climate_esg/modeling/physical_config.py",
+            "/home/osney/Desktop/DEV/climate_risks_esg/tests/unit/test_hazard_calibration.py"
+          ],
+          "ml_technique": "Atualização bayesiana de priors com verossimilhança de eventos observados; backtest qualitativo contra evento de 2017",
+          "source_lens": "ml-ds-dl"
+        },
+        {
+          "title": "Gates estatísticos: salto de score e drift",
+          "what": "Substituir MAX_SCORE_JUMP=30 fixo por z-score robusto (mediana/MAD) sobre o histórico de scores por empresa via run_sk, com quarentena POR EMPRESA (grava flag, não aborta a transação de todas) e comportamento definido para primeiro run sem baseline (passa com flag, modo observação nos primeiros meses); quality/drift.py com PSI/KS entre runs de fact_climate_indicator e checagens de distribuição das fontes vivas (escala CVM vs ano anterior, faixa de preço brapi, IDs AdaptaBrasil) como gate de ingestão — converte as falhas silenciosas mapeadas em eventos visíveis.",
+          "files": [
+            "/home/osney/Desktop/DEV/climate_risks_esg/src/climate_esg/quality/checks.py",
+            "/home/osney/Desktop/DEV/climate_risks_esg/src/climate_esg/quality/drift.py",
+            "/home/osney/Desktop/DEV/climate_risks_esg/pipelines/flows/compute_scores.py",
+            "/home/osney/Desktop/DEV/climate_risks_esg/pipelines/flows/ingest_cmip6.py"
+          ],
+          "ml_technique": "Z-score robusto (median/MAD) por série de empresa + PSI/Kolmogorov-Smirnov para drift distribucional entre runs",
+          "source_lens": "robustez-engenharia + ml-ds-dl"
+        },
+        {
+          "title": "Conformal prediction no analytics do universo CVM",
+          "what": "Split conformal sobre as ~466 cias para dar intervalos com cobertura garantida às saídas de analytics.py (receita-em-risco, kNN), e converter o score bruto do IsolationForest em p-value conformal/percentil interpretável (em vez de -0.041 opaco); documentar MIN_SAMPLE=10 e retornar status 'insufficient_universe' explícito quando N<10.",
+          "files": [
+            "/home/osney/Desktop/DEV/climate_risks_esg/src/climate_esg/modeling/conformal.py",
+            "/home/osney/Desktop/DEV/climate_risks_esg/src/climate_esg/modeling/analytics.py",
+            "/home/osney/Desktop/DEV/climate_risks_esg/src/climate_esg/modeling/anomaly.py",
+            "/home/osney/Desktop/DEV/climate_risks_esg/tests/unit/test_conformal.py"
+          ],
+          "ml_technique": "Split conformal prediction (implementação própria ~50 linhas) + p-values conformais para anomalia",
+          "source_lens": "ml-ds-dl"
+        }
+      ]
+    },
+    {
+      "name": "Fase 5 — ML aplicado: curvas de dano aprendidas, NLP local e MLOps",
+      "goal": "Trocar os últimos números declarados por estimativas aprendidas de dados brasileiros observados (Monte Carlo de perdas com curvas de dano S2iD), extrair sinais de transição e controvérsia por NLP local em CPU, e profissionalizar o ML existente com registry, fit offline e backtesting — fechando o ciclo score→valor monetário→disclosure com governança de modelo auditável.",
+      "items": [
+        {
+          "title": "Curvas de dano calibradas em desastres brasileiros",
+          "what": "Ingerir S2iD/Defesa Civil (CSV público, download único) por município × ano × tipologia e cruzar com CvmFinancials para estimar elasticidade EBITDA/receita vs evento por divisão CNAE com shrinkage entre setores — substitui os coeficientes declarados de _PROFILES (climate_financial.py) e _SENSITIVITY 3/8/15% (analytics.py) por elasticidade ESTIMADA; aceitar e reportar intervalos largos (subnotificação do S2iD) em vez de estreitá-los artificialmente.",
+          "files": [
+            "/home/osney/Desktop/DEV/climate_risks_esg/src/climate_esg/ingestion/disasters.py",
+            "/home/osney/Desktop/DEV/climate_risks_esg/src/climate_esg/modeling/damage_functions.py",
+            "/home/osney/Desktop/DEV/climate_risks_esg/src/climate_esg/modeling/climate_financial.py",
+            "/home/osney/Desktop/DEV/climate_risks_esg/src/climate_esg/modeling/analytics.py",
+            "/home/osney/Desktop/DEV/climate_risks_esg/tests/unit/test_damage_functions.py"
+          ],
+          "ml_technique": "Regressão hierárquica bayesiana por CNAE (PyMC ou statsmodels MixedLM) com shrinkage; fallback GAM/GradientBoosting se o painel for suficiente",
+          "source_lens": "ml-ds-dl"
+        },
+        {
+          "title": "Motor Monte Carlo de perda frequência-severidade",
+          "what": "Para cada empresa × cenário × horizonte: amostrar frequência de eventos das distribuições EVT (Fase 4) × severidade das curvas de dano × incerteza de parâmetros (10k trials, seed fixa por run_sk para reprodutibilidade), com cópula para dependência chuva→enchente+deslizamento simultâneos (acoplamento do ADR-0005); saída: curva de excedência de perda, AAL, VaR95/CVaR99 decomposta por canal (receita/OPEX/CAPEX/multa), persistida em fact_risk_financial_impact — substitui os multiplicadores ×0.5/×1.6 fabricados.",
+          "files": [
+            "/home/osney/Desktop/DEV/climate_risks_esg/src/climate_esg/modeling/monte_carlo.py",
+            "/home/osney/Desktop/DEV/climate_risks_esg/pipelines/flows/compute_scores.py",
+            "/home/osney/Desktop/DEV/climate_risks_esg/tests/unit/test_monte_carlo.py"
+          ],
+          "ml_technique": "Simulação Monte Carlo frequência-severidade (Poisson×dano) com cópula gaussiana entre hazards correlacionados; AAL/VaR/CVaR",
+          "source_lens": "ml-ds-dl + ifrs-dominio"
+        },
+        {
+          "title": "NLP para sub-scores de transição",
+          "what": "Baixar Formulário de Referência/relatórios por CNPJ, segmentar e classificar sentenças com SLM local (Phi-3/Llama-3.2-3B via llama.cpp, previsto em D10) ou BERTimbau fine-tuned, com saída JSON validada por pydantic — compromissos net-zero, metas SBTi, capex verde, exposição SBCE — gerando sub-scores policy/tech/market por empresa em tabela transition_signals (trecho-fonte + confiança), substituindo progressivamente o YAML curado da Fase 2 (que permanece como override 'curado'). Gate: F1>0.85 em ~200 sentenças rotuladas antes de confiar nos sub-scores; restringir ao universo relevante (piloto + peers setoriais) pelo custo de CPU.",
+          "files": [
+            "/home/osney/Desktop/DEV/climate_risks_esg/src/climate_esg/nlp/transition_signals.py",
+            "/home/osney/Desktop/DEV/climate_risks_esg/src/climate_esg/ingestion/cvm_documents.py",
+            "/home/osney/Desktop/DEV/climate_risks_esg/src/climate_esg/db/migrations/versions/0016_transition_signals.py",
+            "/home/osney/Desktop/DEV/climate_risks_esg/pipelines/flows/extract_transition_signals.py"
+          ],
+          "ml_technique": "Classificação zero/few-shot com SLM local + saída JSON schema-validada; gate F1>0.85 em conjunto rotulado (critério D10)",
+          "source_lens": "ml-ds-dl + ifrs-dominio"
+        },
+        {
+          "title": "Classificador de controvérsia GDELT",
+          "what": "Substituir o keyword-matching (falso-positivo estrutural: qualquer matéria climática vira controvérsia) por transformer multilíngue leve para sentimento/stance + tipificação de evento (multa, litígio climático, greenwashing, incidente, greve) com calibração isotônica e intervalo de confiança binomial sobre a amostra; persistir série temporal em fact_news_signal alimentando o KRI reputacional da Fase 3 — fecha a 4ª categoria de transição do IFRS S2 (reputação).",
+          "files": [
+            "/home/osney/Desktop/DEV/climate_risks_esg/src/climate_esg/nlp/controversy.py",
+            "/home/osney/Desktop/DEV/climate_risks_esg/src/climate_esg/ingestion/news_collector.py",
+            "/home/osney/Desktop/DEV/climate_risks_esg/src/climate_esg/db/migrations/versions/0017_news_signal.py",
+            "/home/osney/Desktop/DEV/climate_risks_esg/tests/unit/test_controversy.py"
+          ],
+          "ml_technique": "Transformer multilíngue para sentimento/tópico ESG + calibração isotônica",
+          "source_lens": "ml-ds-dl"
+        },
+        {
+          "title": "Entity resolution probabilística",
+          "what": "Completar as correções determinísticas da Fase 1 com record linkage: CNPJ como âncora de blocking + similaridade fuzzy (rapidfuzz token_set_ratio) com threshold auditável, relatório de taxa de match por ingestão e ABSTENÇÃO quando confiança < threshold (em vez de associar empresa errada) — aplicado ao casamento CVM↔DimCompany (colisões silenciosas de nome normalizado), ao fallback do dossiê e ao resolve_ticker (heurística 'ticker mais curto').",
+          "files": [
+            "/home/osney/Desktop/DEV/climate_risks_esg/src/climate_esg/matching/entity_resolution.py",
+            "/home/osney/Desktop/DEV/climate_risks_esg/src/climate_esg/ingestion/cvm.py",
+            "/home/osney/Desktop/DEV/climate_risks_esg/src/climate_esg/search/dossier.py",
+            "/home/osney/Desktop/DEV/climate_risks_esg/src/climate_esg/ingestion/market_data.py",
+            "/home/osney/Desktop/DEV/climate_risks_esg/tests/unit/test_entity_resolution.py"
+          ],
+          "ml_technique": "Record linkage com blocking por CNPJ/UF + score fuzzy calibrado e política de abstenção",
+          "source_lens": "ml-ds-dl + robustez-engenharia"
+        },
+        {
+          "title": "MLflow registry + fit offline (fim do refit por request)",
+          "what": "Flow Prefect fit_models treinando features/peers/anomaly sobre o universo CVM, logando modelo+scaler+encoder como artefatos versionados no MLflow file-store com assinatura; API carrega a versão 'production' no lifespan e infere deterministicamente — elimina refit O(N) a cada request e resultados não-reprodutíveis; calibrar contamination do IsolationForest por sweep de estabilidade em vez de 0.1 fixo; limitações (MIN_SAMPLE, universo) documentadas no model card.",
+          "files": [
+            "/home/osney/Desktop/DEV/climate_risks_esg/pipelines/flows/fit_models.py",
+            "/home/osney/Desktop/DEV/climate_risks_esg/src/climate_esg/modeling/features.py",
+            "/home/osney/Desktop/DEV/climate_risks_esg/src/climate_esg/modeling/peers.py",
+            "/home/osney/Desktop/DEV/climate_risks_esg/src/climate_esg/modeling/anomaly.py",
+            "/home/osney/Desktop/DEV/climate_risks_esg/src/climate_esg/api/main.py"
+          ],
+          "ml_technique": "MLflow model registry (pyfunc) + inferência versionada; seleção de contamination por sweep com métrica de estabilidade",
+          "source_lens": "robustez-engenharia + ml-ds-dl"
+        },
+        {
+          "title": "Backtesting e métricas de validação por run",
+          "what": "quality/backtest.py logando no MLflow por run: cobertura empírica das bandas (a banda P10-P90 contém ~80% dos re-scores?), estabilidade trimestral <5% (critério de saída do ADR-0004, hoje inverificável) via comparação entre runs por run_sk, erro de calibração dos classificadores NLP (Brier/ECE) e diagnósticos EVT (p-value do fit GEV) — transforma dim_model_run + MLflow em governança de modelo de nível auditável exigida pelo S1.",
+          "files": [
+            "/home/osney/Desktop/DEV/climate_risks_esg/src/climate_esg/quality/backtest.py",
+            "/home/osney/Desktop/DEV/climate_risks_esg/src/climate_esg/governance/lineage.py",
+            "/home/osney/Desktop/DEV/climate_risks_esg/pipelines/flows/compute_scores.py"
+          ],
+          "ml_technique": "Backtesting de cobertura de intervalo, teste de estabilidade entre runs, métricas de calibração (Brier/ECE)",
+          "source_lens": "ml-ds-dl + ifrs-dominio"
+        }
+      ]
+    }
+  ],
+  "quick_wins": [
+    "Gate anti-vazio mínimo: RuntimeError em compute_scores quando scored==0 ou cenário inexistente (poucas linhas em pipelines/flows/compute_scores.py + campo min_companies_scored em config.py) — encerra hoje o 'run verde com zero fatos'",
+    "Remover o default silencioso 0.15 de financial_impact.py: cenário desconhecido levanta KeyError; fatores 0.10/0.20/0.35 viram constantes nomeadas com referência NGFS",
+    "Auditoria honesta: zeros explícitos em run_fact_counts (remover 'if n:') e incluir FactFinancialImpact em _FACT_TABLES (governance/audit.py)",
+    "Unificar HAZARD_WEIGHTS: analytics.py importa de physical_config.py — elimina as duas metodologias incompatíveis que coexistem hoje",
+    "CORS via settings incluindo a porta real 5174 (api/main.py + config.py) — o frontend está quebrando silenciosamente por hardcode de 5173/4173",
+    "Escapar %/_ no ilike de _resolve_company_sk e validar dígito verificador de CNPJ em classify_query (search/dossier.py) — evita dossiê com financeiro de outra empresa",
+    "news_collector: distinguir falha de coleta (None) de ausência de notícias ([]) — GDELT em rate-limit deixa de fazer a empresa parecer 'limpa'",
+    "Renomear/corrigir daily_returns que recebe PREÇOS de fechamento (market_data.py) — bug semântico à espera de consumidor",
+    "rollback em exceção no deps.py + SecretStr para pg_password/brapi_token + warning para senha default 'changeme_local_only' (config.py)",
+    "Timeout com AbortController e corpo do erro no getJson + error boundary em main.tsx — backend travado deixa de congelar a UI com tela branca",
+    "Teste de regressão 'run vazio deve falhar' (tests/integration/test_compute_scores_empty.py) — trava o retorno do bug central antes de qualquer refactor",
+    "Volume para MLFLOW_TRACKING_URI no docker-compose — linhagem MLflow deixa de se perder a cada recreate do container"
+  ],
+  "dropped_ideas": [
+    "Super-resolução CNN / downscaling por deep learning (oportunidades ML de vários subsistemas): quantile mapping via xclim.sdba entrega o objetivo (limiares locais com significado) em CPU local, com validação contra INMET/ERA5; DL exige dado de treino e GPU que o contexto '1 dev, local' não comporta",
+    "GNN para propagação de risco na cadeia de suprimentos (P2/oportunidades): não existe grafo fornecedor-cliente denso o suficiente — as contrapartes reais do Compras.gov + afinidade CNAE determinística cobrem o requisito S2 de cadeia de valor com custo muito menor",
+    "XGBoost para score de transição (oportunidades): vetado pelo ADR-0004 até N≥30; o NLP da Fase 5 alimenta sub-scores auditáveis sem violar o ADR — apenas o feature store fica preparado",
+    "GARCH/state-space/beta climático sobre retornos brapi (P2/oportunidades): baixo ROI para a matriz IFRS; o pré-requisito nem existe hoje (daily_returns contém preços, não retornos — corrigido na Fase 1); reavaliar depois da Fase 5",
+    "Scatter UMAP/PCA interativo do universo CVM (oportunidades frontend): nice-to-have visual que não fecha nenhum requisito IFRS nem de robustez; adiado indefinidamente",
+    "Estender o FactFinancialImpact legado com colunas P10/P50/P90 (P2 WS3): substituído pela nova fact_risk_financial_impact no grão por risco (P3) — duas tabelas concorrentes de impacto criariam dupla verdade; o legado entra apenas no audit e os quantis foram absorvidos como low/central/high da nova tabela",
+    "Tabela company_transition_input via migration (P1 WS4): substituída pelo YAML curado versionado chaveado por CNPJ (P3) — mais simples para 1 dev, procedência auditável no git, elimina igualmente a dependência da ordem de seed, e vira insumo natural do NLP da Fase 5",
+    "Prophet/modelos state-space para medir 'estabilidade trimestral <5%' (P3/oportunidades): comparação direta entre runs com z-score robusto MAD (Fase 4) cobre o critério do ADR-0004 com fração do código e sem dependência nova",
+    "Cenários NGFS adicionais (Net Zero 2050/Delayed Transition/Hot House) agora (P3 ganchos): sem trajetória quantitativa ingerível localmente viram rótulos vazios — manter historical/SSP2-4.5/SSP5-8.5 com scenario_role e migrar quando houver dado",
+    "Endpoint /v1/config para servir os cortes de severidade 33/66 ao frontend (P1 WS4): overhead de rede para 2 constantes — unificação em constante backend + espelho único em util.ts com teste de contrato resolve o drift",
+    "Embeddings pgvector para peers setoriais (P3/oportunidades): o kNN atual com fit offline versionado (Fase 5) atende o benchmarking do ADR-0004; embeddings aprendidos só se o universo de features crescer",
+    "Great Expectations (placeholder no pyproject): pandera já cobre os gates necessários — adotar segunda ferramenta de qualidade duplicaria manutenção sem ganho",
+    "Reescrita async da API/httpx (implícita nos gaps de P1): invasiva demais para o ganho — timeouts por fonte, deadline no fan-out e rate-limit no /v1/search (Fase 1) mitigam o worker preso com custo muito menor; revisitar só se houver concorrência real de usuários",
+    "MAPIE como dependência para conformal prediction (P2 WS2): split conformal é ~50 linhas de implementação própria — evita dependência extra em ambiente local",
+    "Deployment Prefect agendado 'risk-matrix-ifrs' com schedule automático (P2/ganchos): execução local single-node com operador único — o flow consolidado existe, mas schedule automático fica adiado até haver ambiente sempre-ligado"
+  ]
+}

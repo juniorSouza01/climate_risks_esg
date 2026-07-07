@@ -20,6 +20,25 @@ HAZARD_WEIGHTS: dict[str, float] = {
     "deslizamento": 0.20,
 }
 
+ADAPTABRASIL_HAZARD_WEIGHTS: dict[str, float] = {
+    "enchente": 0.40,
+    "seca": 0.35,
+    "deslizamento": 0.25,
+}
+
+DEFAULT_HAZARD_WEIGHT = 0.10
+
+SEVERITY_CUTS: tuple[float, float] = (33.0, 66.0)
+
+
+def severity_label(value: float) -> str:
+    low, high = SEVERITY_CUTS
+    if value < low:
+        return "baixo"
+    if value < high:
+        return "médio"
+    return "alto"
+
 
 @dataclass(frozen=True, slots=True)
 class IndicatorReference:

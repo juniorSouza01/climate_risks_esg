@@ -180,15 +180,44 @@ def _seed_climate_variables(session: Session) -> None:
 
 def _seed_companies(session: Session) -> None:
     for row in COMPANIES:
-        session.merge(DimCompany(**row))
+        existing = session.get(DimCompany, row["company_sk"])
+        if existing is None:
+            session.add(DimCompany(**row))
+            continue
+        for key, value in row.items():
+            if key == "company_sk" or value is None:
+                continue
+            if getattr(existing, key) is None:
+                setattr(existing, key, value)
 
 
 def _seed_assets(session: Session) -> None:
     for row in ASSETS:
         data = dict(row)
         lat, lon = data["latitude"], data["longitude"]
-        data["geom"] = WKTElement(f"POINT({lon} {lat})", srid=4326)
-        session.merge(DimAsset(**data))
+        existing = session.execute(
+            sa.select(DimAsset.latitude, DimAsset.longitude, DimAsset.geom.is_(None)).where(
+                DimAsset.asset_sk == data["asset_sk"]
+            )
+        ).one_or_none()
+        if existing is None:
+            data["geom"] = WKTElement(f"POINT({lon} {lat})", srid=4326)
+            session.add(DimAsset(**data))
+            continue
+        cur_lat, cur_lon, geom_is_null = existing
+        values: dict[str, object] = {}
+        if cur_lat is None:
+            values["latitude"] = lat
+        if cur_lon is None:
+            values["longitude"] = lon
+        if geom_is_null:
+            eff_lat = cur_lat if cur_lat is not None else lat
+            eff_lon = cur_lon if cur_lon is not None else lon
+            values["geom"] = WKTElement(f"POINT({eff_lon} {eff_lat})", srid=4326)
+        if values:
+            session.execute(
+                sa.update(DimAsset).where(DimAsset.asset_sk == data["asset_sk"]).values(**values)
+            )
 
 
 def _seed_dates(session: Session) -> int:
@@ -217,14 +246,21 @@ def _seed_dates(session: Session) -> int:
     return len(rows)
 
 
-def run() -> None:
+def _run_all(session: Session) -> int:
+    _seed_scenarios(session)
+    _seed_climate_variables(session)
+    _seed_companies(session)
+    _seed_assets(session)
+    return _seed_dates(session)
+
+
+def run(session: Session | None = None) -> None:
     """Roda o seed completo de forma idempotente."""
-    with session_scope() as session:
-        _seed_scenarios(session)
-        _seed_climate_variables(session)
-        _seed_companies(session)
-        _seed_assets(session)
-        n_dates = _seed_dates(session)
+    if session is not None:
+        n_dates = _run_all(session)
+    else:
+        with session_scope() as scoped:
+            n_dates = _run_all(scoped)
     log.info(
         "db.seed.done",
         scenarios=len(SCENARIOS),

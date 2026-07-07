@@ -6,6 +6,7 @@ from typing import Any
 import sqlalchemy as sa
 from prefect import flow, get_run_logger, task
 
+from climate_esg.config import get_settings
 from climate_esg.db.base import session_scope
 from climate_esg.db.models import (
     DimAsset,
@@ -20,7 +21,7 @@ from climate_esg.db.models import (
     FactTransitionRiskScore,
 )
 from climate_esg.geospatial.exposure import asset_hazard_exposures
-from climate_esg.governance.lineage import start_model_run
+from climate_esg.governance.lineage import finish_model_run, start_model_run
 from climate_esg.modeling.explanation import build_narrative
 from climate_esg.modeling.financial_impact import compute_financial_impact
 from climate_esg.modeling.physical_config import (
@@ -81,13 +82,15 @@ def _previous_score(
 @task
 def score_physical(scenario_name: str, horizon_year: int) -> int:
     logger = _flow_logger()
+    settings = get_settings()
     scored = 0
 
     with session_scope() as session:
         scenario_sk = _scenario_sk(session, scenario_name)
         if scenario_sk is None:
-            logger.warning("score_physical: cenário '%s' não existe", scenario_name)
-            return 0
+            raise RuntimeError(
+                f"score_physical: cenário '{scenario_name}' não existe em dim_scenario"
+            )
 
         run_sk = start_model_run(
             session,
@@ -95,81 +98,99 @@ def score_physical(scenario_name: str, horizon_year: int) -> int:
             model_version=PHYSICAL_MODEL_VERSION,
             hyperparams={"weights": HAZARD_WEIGHTS, "horizon_year": horizon_year},
         )
+        session.commit()
 
-        mean_rows = session.execute(
-            sa.select(
-                DimAsset.company_sk,
-                DimClimateVariable.cf_code,
-                sa.func.avg(FactClimateIndicator.value_mean),
-            )
-            .join(DimAsset, DimAsset.asset_sk == FactClimateIndicator.asset_sk)
-            .join(
-                DimClimateVariable,
-                DimClimateVariable.var_sk == FactClimateIndicator.var_sk,
-            )
-            .where(FactClimateIndicator.scenario_sk == scenario_sk)
-            .group_by(DimAsset.company_sk, DimClimateVariable.cf_code)
-        ).all()
-
-        asset_counts = dict(
-            session.execute(
+        try:
+            mean_rows = session.execute(
                 sa.select(
                     DimAsset.company_sk,
-                    sa.func.count(sa.distinct(FactClimateIndicator.asset_sk)),
+                    DimClimateVariable.cf_code,
+                    sa.func.avg(FactClimateIndicator.value_mean),
                 )
                 .join(DimAsset, DimAsset.asset_sk == FactClimateIndicator.asset_sk)
+                .join(
+                    DimClimateVariable,
+                    DimClimateVariable.var_sk == FactClimateIndicator.var_sk,
+                )
                 .where(FactClimateIndicator.scenario_sk == scenario_sk)
-                .group_by(DimAsset.company_sk)
+                .group_by(DimAsset.company_sk, DimClimateVariable.cf_code)
             ).all()
-        )
 
-        var_means: dict[int, dict[str, float]] = {}
-        for company_sk, cf_code, avg_value in mean_rows:
-            if avg_value is None:
-                continue
-            var_means.setdefault(company_sk, {})[cf_code] = float(avg_value)
+            asset_counts = dict(
+                session.execute(
+                    sa.select(
+                        DimAsset.company_sk,
+                        sa.func.count(sa.distinct(FactClimateIndicator.asset_sk)),
+                    )
+                    .join(DimAsset, DimAsset.asset_sk == FactClimateIndicator.asset_sk)
+                    .where(FactClimateIndicator.scenario_sk == scenario_sk)
+                    .group_by(DimAsset.company_sk)
+                ).all()
+            )
 
-        for company_sk, means in var_means.items():
-            try:
-                result = compute_physical_score(means)
-            except ValueError:
-                logger.warning(
-                    "score_physical: empresa %s sem variável de hazard mapeável (vars=%s)",
-                    company_sk,
-                    sorted(means),
+            var_means: dict[int, dict[str, float]] = {}
+            for company_sk, cf_code, avg_value in mean_rows:
+                if avg_value is None:
+                    continue
+                var_means.setdefault(company_sk, {})[cf_code] = float(avg_value)
+
+            for company_sk, means in var_means.items():
+                try:
+                    result = compute_physical_score(means)
+                except ValueError:
+                    logger.warning(
+                        "score_physical: empresa %s sem variável de hazard mapeável (vars=%s)",
+                        company_sk,
+                        sorted(means),
+                    )
+                    continue
+
+                validate_score_rows(
+                    [
+                        {
+                            "score_0_100": result.band.central,
+                            "band_low": result.band.low,
+                            "band_high": result.band.high,
+                        }
+                    ]
                 )
-                continue
-
-            validate_score_rows(
-                [
-                    {
-                        "score_0_100": result.band.central,
-                        "band_low": result.band.low,
-                        "band_high": result.band.high,
-                    }
-                ]
-            )
-            assert_score_jump(
-                _previous_score(
-                    session, FactPhysicalRiskScore, company_sk, scenario_sk, horizon_year
-                ),
-                result.band.central,
-            )
-
-            session.add(
-                FactPhysicalRiskScore(
-                    company_sk=company_sk,
-                    scenario_sk=scenario_sk,
-                    horizon_year=horizon_year,
-                    run_sk=run_sk,
-                    score_0_100=result.band.central,
-                    band_low=result.band.low,
-                    band_high=result.band.high,
-                    n_assets=asset_counts.get(company_sk, 0),
-                    coverage_pct=result.coverage_pct,
+                assert_score_jump(
+                    _previous_score(
+                        session, FactPhysicalRiskScore, company_sk, scenario_sk, horizon_year
+                    ),
+                    result.band.central,
                 )
+
+                session.add(
+                    FactPhysicalRiskScore(
+                        company_sk=company_sk,
+                        scenario_sk=scenario_sk,
+                        horizon_year=horizon_year,
+                        run_sk=run_sk,
+                        score_0_100=result.band.central,
+                        band_low=result.band.low,
+                        band_high=result.band.high,
+                        n_assets=asset_counts.get(company_sk, 0),
+                        coverage_pct=result.coverage_pct,
+                    )
+                )
+                scored += 1
+        except Exception:
+            session.rollback()
+            finish_model_run(session, run_sk, "failed")
+            session.commit()
+            raise
+
+        if scored < settings.min_companies_scored:
+            finish_model_run(session, run_sk, "empty")
+            session.commit()
+            raise RuntimeError(
+                f"score_physical: {scored} empresas < "
+                f"min_companies_scored={settings.min_companies_scored} "
+                f"(cenário={scenario_name} h={horizon_year})"
             )
-            scored += 1
+
+        finish_model_run(session, run_sk, "success")
 
     logger.info(
         "score_physical: %d empresas (cenário=%s h=%s)", scored, scenario_name, horizon_year
@@ -180,13 +201,15 @@ def score_physical(scenario_name: str, horizon_year: int) -> int:
 @task
 def score_transition(scenario_name: str, horizon_year: int) -> int:
     logger = _flow_logger()
+    settings = get_settings()
     scored = 0
 
     with session_scope() as session:
         scenario_sk = _scenario_sk(session, scenario_name)
         if scenario_sk is None:
-            logger.warning("score_transition: cenário '%s' não existe", scenario_name)
-            return 0
+            raise RuntimeError(
+                f"score_transition: cenário '{scenario_name}' não existe em dim_scenario"
+            )
 
         run_sk = start_model_run(
             session,
@@ -194,41 +217,59 @@ def score_transition(scenario_name: str, horizon_year: int) -> int:
             model_version=TRANSITION_MODEL_VERSION,
             hyperparams={"weights": SUBSCORE_WEIGHTS, "horizon_year": horizon_year},
         )
+        session.commit()
 
-        for company_sk, inp in COMPANY_TRANSITION_INPUTS.items():
-            result = compute_transition_score(inp.policy, inp.tech, inp.market)
-            validate_score_rows(
-                [
-                    {
-                        "score_0_100": result.band.central,
-                        "band_low": result.band.low,
-                        "band_high": result.band.high,
-                    }
-                ]
-            )
-            assert_score_jump(
-                _previous_score(
-                    session, FactTransitionRiskScore, company_sk, scenario_sk, horizon_year
-                ),
-                result.band.central,
-            )
-            session.add(
-                FactTransitionRiskScore(
-                    company_sk=company_sk,
-                    scenario_sk=scenario_sk,
-                    horizon_year=horizon_year,
-                    run_sk=run_sk,
-                    score_0_100=result.band.central,
-                    band_low=result.band.low,
-                    band_high=result.band.high,
-                    carbon_intensity=inp.carbon_intensity,
-                    target_alignment=inp.target_alignment,
-                    sub_score_policy=result.sub_score_policy,
-                    sub_score_tech=result.sub_score_tech,
-                    sub_score_market=result.sub_score_market,
+        try:
+            for company_sk, inp in COMPANY_TRANSITION_INPUTS.items():
+                result = compute_transition_score(inp.policy, inp.tech, inp.market)
+                validate_score_rows(
+                    [
+                        {
+                            "score_0_100": result.band.central,
+                            "band_low": result.band.low,
+                            "band_high": result.band.high,
+                        }
+                    ]
                 )
+                assert_score_jump(
+                    _previous_score(
+                        session, FactTransitionRiskScore, company_sk, scenario_sk, horizon_year
+                    ),
+                    result.band.central,
+                )
+                session.add(
+                    FactTransitionRiskScore(
+                        company_sk=company_sk,
+                        scenario_sk=scenario_sk,
+                        horizon_year=horizon_year,
+                        run_sk=run_sk,
+                        score_0_100=result.band.central,
+                        band_low=result.band.low,
+                        band_high=result.band.high,
+                        carbon_intensity=inp.carbon_intensity,
+                        target_alignment=inp.target_alignment,
+                        sub_score_policy=result.sub_score_policy,
+                        sub_score_tech=result.sub_score_tech,
+                        sub_score_market=result.sub_score_market,
+                    )
+                )
+                scored += 1
+        except Exception:
+            session.rollback()
+            finish_model_run(session, run_sk, "failed")
+            session.commit()
+            raise
+
+        if scored < settings.min_companies_scored:
+            finish_model_run(session, run_sk, "empty")
+            session.commit()
+            raise RuntimeError(
+                f"score_transition: {scored} empresas < "
+                f"min_companies_scored={settings.min_companies_scored} "
+                f"(cenário={scenario_name} h={horizon_year})"
             )
-            scored += 1
+
+        finish_model_run(session, run_sk, "success")
 
     logger.info(
         "score_transition: %d empresas (cenário=%s h=%s)", scored, scenario_name, horizon_year
@@ -263,12 +304,15 @@ def _latest_bands(
 @task
 def score_composite(scenario_name: str, horizon_year: int) -> list[dict[str, Any]]:
     logger = _flow_logger()
+    settings = get_settings()
     composed: list[dict[str, Any]] = []
 
     with session_scope() as session:
         scenario_sk = _scenario_sk(session, scenario_name)
         if scenario_sk is None:
-            return []
+            raise RuntimeError(
+                f"score_composite: cenário '{scenario_name}' não existe em dim_scenario"
+            )
 
         physical = _latest_bands(session, FactPhysicalRiskScore, scenario_sk, horizon_year)
         transition = _latest_bands(session, FactTransitionRiskScore, scenario_sk, horizon_year)
@@ -292,6 +336,13 @@ def score_composite(scenario_name: str, horizon_year: int) -> list[dict[str, Any
                 band.low,
                 band.high,
             )
+
+    if len(composed) < settings.min_companies_scored:
+        raise RuntimeError(
+            f"score_composite: {len(composed)} empresas < "
+            f"min_companies_scored={settings.min_companies_scored} "
+            f"(cenário={scenario_name} h={horizon_year})"
+        )
 
     return composed
 
@@ -361,39 +412,48 @@ def score_explanation(scenario_name: str, horizon_year: int) -> int:
             model_version=EXPLANATION_MODEL_VERSION,
             hyperparams={"horizon_year": horizon_year, "method": "deterministic_template"},
         )
+        session.commit()
 
-        physical = _latest_bands(session, FactPhysicalRiskScore, scenario_sk, horizon_year)
-        transition = _latest_bands(session, FactTransitionRiskScore, scenario_sk, horizon_year)
-        coverage = _latest_physical_coverage(session, scenario_sk, horizon_year)
-        subs = _latest_transition_subs(session, scenario_sk, horizon_year)
-        names = dict(session.execute(sa.select(DimCompany.company_sk, DimCompany.name)).all())
+        try:
+            physical = _latest_bands(session, FactPhysicalRiskScore, scenario_sk, horizon_year)
+            transition = _latest_bands(session, FactTransitionRiskScore, scenario_sk, horizon_year)
+            coverage = _latest_physical_coverage(session, scenario_sk, horizon_year)
+            subs = _latest_transition_subs(session, scenario_sk, horizon_year)
+            names = dict(session.execute(sa.select(DimCompany.company_sk, DimCompany.name)).all())
 
-        for company_sk in sorted(set(physical) | set(transition)):
-            phys = physical.get(company_sk)
-            trans = transition.get(company_sk)
-            composite = compose_score(phys, trans) if phys and trans else None
-            narrative = build_narrative(
-                company_name=names.get(company_sk, str(company_sk)),
-                scenario=scenario_name,
-                horizon_year=horizon_year,
-                physical=phys,
-                transition=trans,
-                composite=composite,
-                sub_scores=subs.get(company_sk, {}),
-                coverage_pct=coverage.get(company_sk, 0.0),
-            )
-            session.add(
-                FactScoreExplanation(
-                    company_sk=company_sk,
-                    scenario_sk=scenario_sk,
+            for company_sk in sorted(set(physical) | set(transition)):
+                phys = physical.get(company_sk)
+                trans = transition.get(company_sk)
+                composite = compose_score(phys, trans) if phys and trans else None
+                narrative = build_narrative(
+                    company_name=names.get(company_sk, str(company_sk)),
+                    scenario=scenario_name,
                     horizon_year=horizon_year,
-                    run_sk=run_sk,
-                    narrative_md=narrative.text,
-                    drivers=narrative.drivers,
-                    sources=[],
+                    physical=phys,
+                    transition=trans,
+                    composite=composite,
+                    sub_scores=subs.get(company_sk, {}),
+                    coverage_pct=coverage.get(company_sk, 0.0),
                 )
-            )
-            written += 1
+                session.add(
+                    FactScoreExplanation(
+                        company_sk=company_sk,
+                        scenario_sk=scenario_sk,
+                        horizon_year=horizon_year,
+                        run_sk=run_sk,
+                        narrative_md=narrative.text,
+                        drivers=narrative.drivers,
+                        sources=[],
+                    )
+                )
+                written += 1
+        except Exception:
+            session.rollback()
+            finish_model_run(session, run_sk, "failed")
+            session.commit()
+            raise
+
+        finish_model_run(session, run_sk, "success" if written else "empty")
 
     logger.info(
         "score_explanation: %d narrativas (cenário=%s h=%s)", written, scenario_name, horizon_year
@@ -417,39 +477,48 @@ def score_hazard_exposure(scenario_name: str, horizon_year: int) -> int:
             model_version=HAZARD_EXPOSURE_MODEL_VERSION,
             hyperparams={"horizon_year": horizon_year},
         )
+        session.commit()
 
-        rows = session.execute(
-            sa.select(
-                FactClimateIndicator.asset_sk,
-                DimClimateVariable.cf_code,
-                sa.func.avg(FactClimateIndicator.value_mean),
-            )
-            .join(
-                DimClimateVariable,
-                DimClimateVariable.var_sk == FactClimateIndicator.var_sk,
-            )
-            .where(FactClimateIndicator.scenario_sk == scenario_sk)
-            .group_by(FactClimateIndicator.asset_sk, DimClimateVariable.cf_code)
-        ).all()
-
-        by_asset: dict[int, dict[str, float]] = defaultdict(dict)
-        for asset_sk, cf_code, avg_value in rows:
-            if avg_value is not None:
-                by_asset[asset_sk][cf_code] = float(avg_value)
-
-        for asset_sk, var_means in by_asset.items():
-            for hazard, exposure in asset_hazard_exposures(var_means).items():
-                session.add(
-                    FactHazardExposure(
-                        asset_sk=asset_sk,
-                        hazard_type=hazard,
-                        scenario_sk=scenario_sk,
-                        horizon_year=horizon_year,
-                        run_sk=run_sk,
-                        exposure_normalized=round(exposure, 4),
-                    )
+        try:
+            rows = session.execute(
+                sa.select(
+                    FactClimateIndicator.asset_sk,
+                    DimClimateVariable.cf_code,
+                    sa.func.avg(FactClimateIndicator.value_mean),
                 )
-                written += 1
+                .join(
+                    DimClimateVariable,
+                    DimClimateVariable.var_sk == FactClimateIndicator.var_sk,
+                )
+                .where(FactClimateIndicator.scenario_sk == scenario_sk)
+                .group_by(FactClimateIndicator.asset_sk, DimClimateVariable.cf_code)
+            ).all()
+
+            by_asset: dict[int, dict[str, float]] = defaultdict(dict)
+            for asset_sk, cf_code, avg_value in rows:
+                if avg_value is not None:
+                    by_asset[asset_sk][cf_code] = float(avg_value)
+
+            for asset_sk, var_means in by_asset.items():
+                for hazard, exposure in asset_hazard_exposures(var_means).items():
+                    session.add(
+                        FactHazardExposure(
+                            asset_sk=asset_sk,
+                            hazard_type=hazard,
+                            scenario_sk=scenario_sk,
+                            horizon_year=horizon_year,
+                            run_sk=run_sk,
+                            exposure_normalized=round(exposure, 4),
+                        )
+                    )
+                    written += 1
+        except Exception:
+            session.rollback()
+            finish_model_run(session, run_sk, "failed")
+            session.commit()
+            raise
+
+        finish_model_run(session, run_sk, "success" if written else "empty")
 
     logger.info(
         "score_hazard_exposure: %d exposições (cenário=%s h=%s)",
@@ -476,25 +545,34 @@ def score_financial(scenario_name: str, horizon_year: int) -> int:
             model_version=FINANCIAL_MODEL_VERSION,
             hyperparams={"horizon_year": horizon_year},
         )
+        session.commit()
 
-        physical = _latest_bands(session, FactPhysicalRiskScore, scenario_sk, horizon_year)
-        transition = _latest_bands(session, FactTransitionRiskScore, scenario_sk, horizon_year)
+        try:
+            physical = _latest_bands(session, FactPhysicalRiskScore, scenario_sk, horizon_year)
+            transition = _latest_bands(session, FactTransitionRiskScore, scenario_sk, horizon_year)
 
-        for company_sk in sorted(set(physical) & set(transition)):
-            composite = compose_score(physical[company_sk], transition[company_sk])
-            impact = compute_financial_impact(composite, scenario=scenario_name)
-            session.add(
-                FactFinancialImpact(
-                    company_sk=company_sk,
-                    scenario_sk=scenario_sk,
-                    horizon_year=horizon_year,
-                    run_sk=run_sk,
-                    dcf_adjustment_pct=impact.dcf_adjustment_pct,
-                    band_low_pct=impact.band_low_pct,
-                    band_high_pct=impact.band_high_pct,
+            for company_sk in sorted(set(physical) & set(transition)):
+                composite = compose_score(physical[company_sk], transition[company_sk])
+                impact = compute_financial_impact(composite, scenario=scenario_name)
+                session.add(
+                    FactFinancialImpact(
+                        company_sk=company_sk,
+                        scenario_sk=scenario_sk,
+                        horizon_year=horizon_year,
+                        run_sk=run_sk,
+                        dcf_adjustment_pct=impact.dcf_adjustment_pct,
+                        band_low_pct=impact.band_low_pct,
+                        band_high_pct=impact.band_high_pct,
+                    )
                 )
-            )
-            written += 1
+                written += 1
+        except Exception:
+            session.rollback()
+            finish_model_run(session, run_sk, "failed")
+            session.commit()
+            raise
+
+        finish_model_run(session, run_sk, "success" if written else "empty")
 
     logger.info(
         "score_financial: %d empresas (cenário=%s h=%s)", written, scenario_name, horizon_year

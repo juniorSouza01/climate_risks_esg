@@ -161,6 +161,73 @@ def geo_resolve_ibge() -> None:
     console.print(f"[bold]{updated} ativos com IBGE resolvido.[/bold]")
 
 
+@db_app.command(
+    "prune-dossier-cache", help="Remove entradas expiradas do cache do dossiê (cache_dossier)."
+)
+def db_prune_dossier_cache() -> None:
+    configure_logging()
+    import datetime as dt
+
+    import sqlalchemy as sa
+
+    from climate_esg.db.base import session_scope
+    from climate_esg.db.models import CacheDossier
+
+    now = dt.datetime.now(dt.UTC)
+    with session_scope() as session:
+        result = session.execute(sa.delete(CacheDossier).where(CacheDossier.expires_at <= now))
+        removed = result.rowcount or 0
+    console.print(f"[bold green]{removed} entradas expiradas removidas do cache do dossiê.[/bold green]")
+
+
+@db_app.command(
+    "prune-model-runs",
+    help="Remove runs órfãos (sem fatos) não-success antigos de dim_model_run.",
+)
+def db_prune_model_runs(
+    days: int = typer.Option(30, help="Idade mínima (dias) do run para remoção."),
+) -> None:
+    configure_logging()
+    import datetime as dt
+
+    import sqlalchemy as sa
+
+    from climate_esg.db.base import session_scope
+    from climate_esg.db.models import (
+        DimModelRun,
+        FactClimateIndicator,
+        FactFinancialImpact,
+        FactHazardExposure,
+        FactPhysicalRiskScore,
+        FactScoreExplanation,
+        FactTransitionRiskScore,
+    )
+
+    cutoff = dt.datetime.now(dt.UTC) - dt.timedelta(days=days)
+    fact_tables = (
+        FactClimateIndicator,
+        FactPhysicalRiskScore,
+        FactTransitionRiskScore,
+        FactFinancialImpact,
+        FactHazardExposure,
+        FactScoreExplanation,
+    )
+    conditions = [
+        DimModelRun.status != "success",
+        DimModelRun.created_at < cutoff,
+    ]
+    for fact in fact_tables:
+        conditions.append(
+            ~sa.exists(sa.select(fact.run_sk).where(fact.run_sk == DimModelRun.run_sk))
+        )
+    with session_scope() as session:
+        result = session.execute(sa.delete(DimModelRun).where(*conditions))
+        removed = result.rowcount or 0
+    console.print(
+        f"[bold green]{removed} runs órfãos/failed (>{days}d) removidos de dim_model_run.[/bold green]"
+    )
+
+
 @db_app.command("seed")
 def db_seed() -> None:
     """Popula as dimensões-base do MVP (idempotente)."""

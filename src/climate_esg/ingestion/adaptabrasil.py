@@ -7,7 +7,8 @@ from sqlalchemy.orm import Session
 
 from climate_esg.db.models import DimAsset, DimScenario, FactHazardExposure
 from climate_esg.governance.lineage import start_model_run
-from climate_esg.ingestion.http import get_client
+from climate_esg.ingestion.http import request_json
+from climate_esg.quality.boundaries import validate_adaptabrasil_rows
 
 MAPA_URL = (
     "https://sistema.adaptabrasil.mcti.gov.br/api/mapa-dados/BR/municipio/"
@@ -39,12 +40,11 @@ def _dossier_scenario(indicator: int) -> int | None:
 
 @lru_cache(maxsize=64)
 def _fetch_rows(indicator: int, year: int, scenario: int) -> tuple[tuple[str, float, str], ...]:
-    resp = get_client().get(
-        MAPA_URL.format(indicator=indicator, year=year, scenario=scenario), timeout=90.0
+    payload = request_json(
+        "adaptabrasil", MAPA_URL.format(indicator=indicator, year=year, scenario=scenario)
     )
-    resp.raise_for_status()
     rows: list[tuple[str, float, str]] = []
-    for row in resp.json():
+    for row in payload or []:
         ibge = str(row.get("geocod_ibge", ""))
         value = row.get("value")
         if ibge and value is not None:
@@ -52,6 +52,7 @@ def _fetch_rows(indicator: int, year: int, scenario: int) -> tuple[tuple[str, fl
                 rows.append((ibge, float(value), str(row.get("rangelabel") or "")))
             except (TypeError, ValueError):
                 continue
+    validate_adaptabrasil_rows(rows, indicator=indicator)
     return tuple(rows)
 
 
@@ -119,10 +120,20 @@ def ingest_adaptabrasil_exposure(session: Session) -> int:
                 continue
             for year in HORIZONS:
                 values = fetch_indicator(indicator, year, adapta_scenario)
-                for asset_sk, ibge in assets:
-                    value = values.get(ibge)
-                    if value is None:
-                        continue
+                targets = [
+                    (asset_sk, values[ibge]) for asset_sk, ibge in assets if ibge in values
+                ]
+                if not targets:
+                    continue
+                session.execute(
+                    sa.delete(FactHazardExposure).where(
+                        FactHazardExposure.hazard_type == hazard,
+                        FactHazardExposure.scenario_sk == sk,
+                        FactHazardExposure.horizon_year == year,
+                        FactHazardExposure.asset_sk.in_([a for a, _ in targets]),
+                    )
+                )
+                for asset_sk, value in targets:
                     session.add(
                         FactHazardExposure(
                             asset_sk=asset_sk,

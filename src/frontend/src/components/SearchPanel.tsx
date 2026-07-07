@@ -4,6 +4,7 @@ import {
   type Anomaly,
   type CompanyScores,
   type Dossier,
+  type DossierSectionError,
   type Explanation,
   type Financial,
   type Peer,
@@ -15,6 +16,7 @@ import { Narrative } from "./Narrative";
 import { Relationships } from "./Relationships";
 import { ScoreCard } from "./ScoreCard";
 import { SubScores } from "./SubScores";
+import { SEVERITY_CUTS, fmtBRL, severityColor } from "./util";
 
 const SOURCE_LABEL: Record<string, string> = {
   brasilapi: "Cadastro · BrasilAPI",
@@ -40,17 +42,13 @@ function fmtNum(v: unknown): string {
 
 function fmtMoney(v: unknown): string {
   const n = typeof v === "string" ? Number(v) : v;
-  if (typeof n !== "number" || Number.isNaN(n)) return "—";
-  return "R$ " + fmtNum(n);
+  if (typeof n !== "number" || !Number.isFinite(n)) return "—";
+  return fmtBRL(n);
 }
 
-function riskColor(v: number): string {
-  return v < 33 ? "#22c55e" : v < 66 ? "#f59e0b" : "#ef4444";
-}
-
-function friendlyError(e: string): string {
-  const src = e.split(":")[0].trim();
-  return `${SOURCE_LABEL[src] ?? src} indisponível no momento`;
+function friendlyError(e: DossierSectionError): string {
+  const base = `${SOURCE_LABEL[e.source] ?? e.source} indisponível no momento`;
+  return e.transient ? `${base} (temporário — tente novamente)` : base;
 }
 
 function pickDefault(entries: ScoreEntry[]): { scenario: string; horizon: number } | null {
@@ -126,9 +124,13 @@ export function SearchPanel() {
   }
 
   const reg = (dossier?.registry ?? {}) as Record<string, unknown>;
-  const mkt = (dossier?.market ?? null) as Record<string, unknown> | null;
+  const mkt = dossier?.market ?? null;
+  const marketOk = mkt != null && (mkt.status ?? "ok") === "ok";
+  const marketUnresolved = mkt != null && mkt.status === "unresolved";
   const fin = dossier?.financials ?? null;
   const cm = dossier?.climate_meta ?? {};
+  const newsArticles = dossier?.news?.articles ?? [];
+  const newsBlocked = dossier?.news?.status != null && dossier.news.status !== "ok";
 
   const scenarios = useMemo(
     () => Array.from(new Set((scores?.scores ?? []).map((e) => e.scenario))),
@@ -159,7 +161,7 @@ export function SearchPanel() {
         ? (fin.net_income / fin.revenue) * 100
         : null;
   const ebitdaMargin = fin?.ebitda_margin != null ? fin.ebitda_margin * 100 : null;
-  const brapiErr = dossier?.errors.some((e) => e.startsWith("brapi")) ?? false;
+  const brapiErr = dossier?.errors.some((e) => e.source === "brapi") ?? false;
 
   return (
     <section className="panel">
@@ -187,6 +189,11 @@ export function SearchPanel() {
             <div className="report-tags">
               <span className="badge">{dossier.kind}</span>
               {dossier.cached && <span className="badge">cache</span>}
+              {dossier.status === "degraded" && (
+                <span className="badge" title="Alguma fonte falhou nesta consulta — dossiê parcial">
+                  parcial
+                </span>
+              )}
               {dossier.sources.map((s) => (
                 <span key={s} className="pill listed">
                   {SOURCE_LABEL[s] ?? s}
@@ -211,7 +218,11 @@ export function SearchPanel() {
             {fin?.ebitda != null && <Kpi label="EBITDA" value={fmtMoney(fin.ebitda)} />}
             <Kpi
               label="Controvérsia (notícias)"
-              value={`${(dossier.controversy_ratio * 100).toFixed(0)}%`}
+              value={
+                dossier.controversy_ratio != null
+                  ? `${(dossier.controversy_ratio * 100).toFixed(0)}%`
+                  : "—"
+              }
             />
             {anomaly && (
               <Kpi
@@ -286,21 +297,33 @@ export function SearchPanel() {
 
             <section className="sub-panel">
               <h4>Mercado · B3</h4>
-              {mkt ? (
-                <dl className="kv">
-                  <Kv k="Ticker" v={S(mkt.ticker)} />
-                  <Kv k="Preço" v={mkt.price != null ? `R$ ${fmtNum(mkt.price)}` : "—"} />
-                  <Kv k="Market cap" v={fmtMoney(mkt.market_cap)} />
-                  <Kv k="P/L" v={mkt.pe_ratio != null ? Number(mkt.pe_ratio).toFixed(1) : "—"} />
-                  <Kv
-                    k="Volatilidade (anual)"
-                    v={
-                      mkt.annualized_volatility != null
-                        ? `${(Number(mkt.annualized_volatility) * 100).toFixed(1)}%`
-                        : "— (requer plano pago)"
-                    }
-                  />
-                </dl>
+              {marketOk && mkt ? (
+                <>
+                  <dl className="kv">
+                    <Kv k="Ticker" v={S(mkt.ticker)} />
+                    <Kv k="Preço" v={mkt.price != null ? `R$ ${fmtNum(mkt.price)}` : "—"} />
+                    <Kv k="Market cap" v={fmtMoney(mkt.market_cap)} />
+                    <Kv k="P/L" v={mkt.pe_ratio != null ? Number(mkt.pe_ratio).toFixed(1) : "—"} />
+                    <Kv
+                      k="Volatilidade (anual)"
+                      v={
+                        mkt.annualized_volatility != null
+                          ? `${(Number(mkt.annualized_volatility) * 100).toFixed(1)}%`
+                          : "— (requer plano pago)"
+                      }
+                    />
+                  </dl>
+                  {mkt.confidence === "heuristic" && (
+                    <div className="muted">
+                      Ticker associado por nome (heurística) — confira se corresponde à empresa.
+                    </div>
+                  )}
+                </>
+              ) : marketUnresolved ? (
+                <div className="muted">
+                  {mkt?.reason ??
+                    "Ticker não associado com confiança suficiente — dados de mercado omitidos."}
+                </div>
               ) : brapiErr ? (
                 <div className="muted">
                   Mercado B3 indisponível no momento (limite de requisições da brapi) — tente
@@ -378,25 +401,40 @@ export function SearchPanel() {
                   <b>municipal</b> de {S(cm.municipio)}/{S(cm.uf)} (IBGE {S(cm.ibge)}), não da
                   empresa isolada. Cenário <b>{S(cm.scenario)}</b> · horizonte{" "}
                   <b>{S(cm.horizon)}</b>. Escala 0–100:{" "}
-                  <span style={{ color: "#22c55e" }}>até 33 baixo</span> ·{" "}
-                  <span style={{ color: "#f59e0b" }}>33–66 médio</span> ·{" "}
-                  <span style={{ color: "#ef4444" }}>acima de 66 alto</span>.
+                  <span style={{ color: severityColor(0) }}>até {SEVERITY_CUTS[0]} baixo</span> ·{" "}
+                  <span style={{ color: severityColor(50) }}>
+                    {SEVERITY_CUTS[0]}–{SEVERITY_CUTS[1]} médio
+                  </span>{" "}
+                  ·{" "}
+                  <span style={{ color: severityColor(100) }}>
+                    acima de {SEVERITY_CUTS[1]} alto
+                  </span>
+                  .
                 </p>
                 <div className="hazard-grid">
                   {Object.entries(dossier.climate_risk).map(([hz, r]) => {
-                    const pct = Math.round(r.value * (r.value <= 1 ? 100 : 1));
+                    const raw = Number(r?.value);
+                    const pct = Number.isFinite(raw)
+                      ? Math.round(Math.max(0, Math.min(100, raw * 100)))
+                      : null;
                     return (
                       <div key={hz} className="hazard-card">
                         <div className="hazard-top">
                           <span className="hazard-name">{hz}</span>
-                          <span className="hazard-val" style={{ color: riskColor(pct) }}>
-                            {pct} · {r.label}
+                          <span
+                            className="hazard-val"
+                            style={pct != null ? { color: severityColor(pct) } : undefined}
+                          >
+                            {pct ?? "—"} · {r?.label}
                           </span>
                         </div>
                         <div className="hazard-track">
                           <div
                             className="hazard-fill"
-                            style={{ width: `${pct}%`, background: riskColor(pct) }}
+                            style={{
+                              width: `${pct ?? 0}%`,
+                              background: severityColor(pct ?? 0),
+                            }}
                           />
                         </div>
                         <div className="muted">{HAZARD_DESC[hz] ?? "Ameaça climática"}</div>
@@ -445,9 +483,24 @@ export function SearchPanel() {
               </div>
 
               <div className="cards">
-                <ScoreCard label="Risco físico" band={entry?.physical ?? null} />
-                <ScoreCard label="Risco de transição" band={entry?.transition ?? null} />
-                <ScoreCard label="Score composto" band={entry?.composite ?? null} />
+                <ScoreCard
+                  label="Risco físico"
+                  band={entry?.physical ?? null}
+                  availability={entry?.availability}
+                  reason={entry?.reason}
+                />
+                <ScoreCard
+                  label="Risco de transição"
+                  band={entry?.transition ?? null}
+                  availability={entry?.availability}
+                  reason={entry?.reason}
+                />
+                <ScoreCard
+                  label="Score composto"
+                  band={entry?.composite ?? null}
+                  availability={entry?.availability}
+                  reason={entry?.reason}
+                />
               </div>
 
               {entry?.transition_detail && (
@@ -552,24 +605,35 @@ export function SearchPanel() {
             </section>
           )}
 
-          {dossier.news.length > 0 && (
+          {newsBlocked ? (
             <section className="sub-panel">
-              <h4>Notícias e exposição na mídia · GDELT ({dossier.news.length})</h4>
-              <div className="muted" style={{ marginBottom: 8 }}>
-                Controvérsia {Math.round(dossier.controversy_ratio * 100)}% — proporção de matérias
-                recentes com tom adverso.
+              <h4>Notícias e exposição na mídia · GDELT</h4>
+              <div className="muted">
+                {dossier.news?.reason ??
+                  "Coleta de notícias indisponível no momento — controvérsia não avaliada."}
               </div>
-              <ul className="news-list">
-                {dossier.news.slice(0, 8).map((n, i) => (
-                  <li key={i}>
-                    <a href={n.url} target="_blank" rel="noreferrer">
-                      {n.title || n.domain}
-                    </a>
-                    <span className="muted"> · {n.domain}</span>
-                  </li>
-                ))}
-              </ul>
             </section>
+          ) : (
+            newsArticles.length > 0 && (
+              <section className="sub-panel">
+                <h4>Notícias e exposição na mídia · GDELT ({newsArticles.length})</h4>
+                <div className="muted" style={{ marginBottom: 8 }}>
+                  {dossier.controversy_ratio != null
+                    ? `Controvérsia ${Math.round(dossier.controversy_ratio * 100)}% — proporção de matérias recentes com tom adverso.`
+                    : "Controvérsia não avaliada."}
+                </div>
+                <ul className="news-list">
+                  {newsArticles.slice(0, 8).map((n, i) => (
+                    <li key={i}>
+                      <a href={n.url} target="_blank" rel="noreferrer">
+                        {n.title || n.domain}
+                      </a>
+                      <span className="muted"> · {n.domain}</span>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            )
           )}
 
           {dossier.errors.length > 0 && (

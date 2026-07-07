@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import datetime as dt
 import hashlib
 import json
 import subprocess
@@ -7,13 +8,31 @@ from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
+import sqlalchemy as sa
 from sqlalchemy.orm import Session
 
 from climate_esg.config import REPO_ROOT, get_settings
-from climate_esg.db.models import DimModelRun
+from climate_esg.db.models import (
+    DimModelRun,
+    FactClimateIndicator,
+    FactFinancialImpact,
+    FactHazardExposure,
+    FactPhysicalRiskScore,
+    FactScoreExplanation,
+    FactTransitionRiskScore,
+)
 from climate_esg.logging import get_logger
 
 log = get_logger(__name__)
+
+_RUN_LINKED_FACTS = (
+    FactClimateIndicator,
+    FactPhysicalRiskScore,
+    FactTransitionRiskScore,
+    FactFinancialImpact,
+    FactHazardExposure,
+    FactScoreExplanation,
+)
 
 
 def current_git_commit(repo_root: Path | None = None) -> str | None:
@@ -81,8 +100,52 @@ def start_model_run(
         code_commit=code_commit if code_commit is not None else current_git_commit(),
         train_data_version=train_data_version,
         hyperparams=hyperparams,
+        status="running",
     )
     session.add(run)
     session.flush()  # popula run.run_sk (IDENTITY) sem fechar a transação
     _log_mlflow(run.run_sk, model_name, model_version, hyperparams)
     return run.run_sk
+
+
+def prune_stale_runs(
+    session: Session,
+    *,
+    older_than_days: int = 30,
+    statuses: tuple[str, ...] = ("failed", "empty"),
+) -> int:
+    cutoff = dt.datetime.now(dt.UTC) - dt.timedelta(days=older_than_days)
+    run_sks = list(
+        session.scalars(
+            sa.select(DimModelRun.run_sk).where(
+                DimModelRun.status.in_(statuses),
+                sa.func.coalesce(DimModelRun.finished_at, DimModelRun.created_at) < cutoff,
+            )
+        ).all()
+    )
+    if not run_sks:
+        return 0
+    facts_deleted = 0
+    for fact in _RUN_LINKED_FACTS:
+        result = session.execute(sa.delete(fact).where(fact.run_sk.in_(run_sks)))
+        facts_deleted += result.rowcount or 0
+    session.execute(sa.delete(DimModelRun).where(DimModelRun.run_sk.in_(run_sks)))
+    session.flush()
+    log.info(
+        "lineage.prune_stale_runs",
+        runs_deleted=len(run_sks),
+        facts_deleted=facts_deleted,
+        older_than_days=older_than_days,
+        statuses=list(statuses),
+    )
+    return len(run_sks)
+
+
+def finish_model_run(session: Session, run_sk: int, status: str) -> None:
+    run = session.get(DimModelRun, run_sk)
+    if run is None:
+        log.warning("finish_model_run.missing", run_sk=run_sk, status=status)
+        return
+    run.status = status
+    run.finished_at = dt.datetime.now(dt.UTC)
+    session.flush()

@@ -5,7 +5,7 @@ from __future__ import annotations
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import Field, PostgresDsn
+from pydantic import Field, PostgresDsn, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -29,7 +29,7 @@ class Settings(BaseSettings):
     pg_host: str = "localhost"
     pg_port: int = 5432
     pg_user: str = "climate_esg"
-    pg_password: str = "changeme_local_only"
+    pg_password: SecretStr = SecretStr("changeme_local_only")
     pg_db: str = "climate_esg"
     database_url: PostgresDsn | None = None
 
@@ -47,7 +47,7 @@ class Settings(BaseSettings):
     esgf_password: str = ""
 
     # --- Fontes corporativas ---
-    brapi_token: str = ""
+    brapi_token: SecretStr = SecretStr("")
     portal_transparencia_token: str = ""
 
     # --- Pool de conexões DB ---
@@ -59,6 +59,20 @@ class Settings(BaseSettings):
     # --- Cache ---
     dossier_cache_ttl_s: int = 3600
 
+    # --- Qualidade ---
+    min_companies_scored: int = 1
+
+    # --- API ---
+    cors_origins: list[str] = Field(
+        default=[
+            "http://localhost:5173",
+            "http://localhost:5174",
+            "http://localhost:4173",
+            "http://127.0.0.1:5173",
+        ]
+    )
+    api_key: SecretStr | None = None
+
     # --- Logging ---
     log_level: str = "INFO"
 
@@ -68,7 +82,7 @@ class Settings(BaseSettings):
         if self.database_url:
             return str(self.database_url)
         return (
-            f"postgresql+psycopg://{self.pg_user}:{self.pg_password}"
+            f"postgresql+psycopg://{self.pg_user}:{self.pg_password.get_secret_value()}"
             f"@{self.pg_host}:{self.pg_port}/{self.pg_db}"
         )
 

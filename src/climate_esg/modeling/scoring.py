@@ -72,7 +72,7 @@ def weighted_score_band(
     total_weight = sum(weights.values())
     coverage = present_weight / total_weight if total_weight else 0.0
 
-    central = sum(weights[h] * s for h, s in present.items()) / present_weight
+    central = clamp(sum(weights[h] * s for h, s in present.items()) / present_weight, 0.0, 100.0)
 
     values = list(present.values())
     spread = (max(values) - min(values)) / 2.0 if len(values) > 1 else 0.0
@@ -99,8 +99,13 @@ def compose_score(
     """
     if abs(weight_physical + weight_transition - 1.0) > 1e-6:
         raise ValueError("pesos devem somar 1.0")
+    central = clamp(
+        weight_physical * physical.central + weight_transition * transition.central, 0.0, 100.0
+    )
+    low = weight_physical * physical.low + weight_transition * transition.low
+    high = weight_physical * physical.high + weight_transition * transition.high
     return ScoreBand(
-        central=weight_physical * physical.central + weight_transition * transition.central,
-        low=weight_physical * physical.low + weight_transition * transition.low,
-        high=weight_physical * physical.high + weight_transition * transition.high,
+        central=central,
+        low=clamp(low, 0.0, central),
+        high=clamp(high, central, 100.0),
     )

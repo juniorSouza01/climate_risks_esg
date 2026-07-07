@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from climate_esg.db.models import (
     DimModelRun,
     FactClimateIndicator,
+    FactFinancialImpact,
     FactHazardExposure,
     FactPhysicalRiskScore,
     FactScoreExplanation,
@@ -20,6 +21,7 @@ _FACT_TABLES: dict[str, Any] = {
     "fact_physical_risk_score": FactPhysicalRiskScore,
     "fact_transition_risk_score": FactTransitionRiskScore,
     "fact_score_explanation": FactScoreExplanation,
+    "fact_financial_impact": FactFinancialImpact,
 }
 
 
@@ -29,8 +31,7 @@ def run_fact_counts(session: Session, run_sk: int) -> dict[str, int]:
         n = session.scalar(
             sa.select(sa.func.count()).select_from(table).where(table.run_sk == run_sk)
         )
-        if n:
-            counts[name] = int(n)
+        counts[name] = int(n or 0)
     return counts
 
 

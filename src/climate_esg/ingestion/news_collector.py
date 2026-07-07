@@ -3,7 +3,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from climate_esg.ingestion.http import get_client
+import httpx
+
+from climate_esg.ingestion.http import NonJSONResponseError, request_json
 
 GDELT_DOC_URL = "https://api.gdeltproject.org/api/v2/doc/doc"
 
@@ -56,14 +58,18 @@ def parse_gdelt(payload: dict[str, Any]) -> list[Article]:
     return out
 
 
-def controversy_ratio(articles: list[Article]) -> float:
+def controversy_ratio(articles: list[Article] | None) -> float | None:
+    if articles is None:
+        return None
     if not articles:
         return 0.0
     flagged = sum(1 for a in articles if any(term in a.title.lower() for term in _ESG_TERMS))
     return round(flagged / len(articles), 4)
 
 
-def fetch_news(query: str, *, max_records: int = 25, timeout: float = 20.0) -> list[Article]:
+def fetch_news(
+    query: str, *, max_records: int = 25, timeout: float | None = None
+) -> list[Article] | None:
     params = {
         "query": f'"{query}"',
         "mode": "ArtList",
@@ -71,10 +77,10 @@ def fetch_news(query: str, *, max_records: int = 25, timeout: float = 20.0) -> l
         "maxrecords": str(max_records),
         "sort": "DateDesc",
     }
-    resp = get_client().get(GDELT_DOC_URL, params=params, timeout=timeout)
-    resp.raise_for_status()
     try:
-        payload = resp.json()
-    except ValueError:
-        return []
+        payload = request_json("gdelt", GDELT_DOC_URL, params=params, timeout=timeout)
+    except (httpx.HTTPError, NonJSONResponseError):
+        return None
+    if not isinstance(payload, dict):
+        return None
     return parse_gdelt(payload)

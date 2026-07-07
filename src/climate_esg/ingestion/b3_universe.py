@@ -15,7 +15,7 @@ _VALIDITY_FROM = dt.date(2026, 1, 1)
 
 
 def fetch_b3_list(target: int = 200, *, token: str | None = None) -> list[dict[str, Any]]:
-    tok = token if token is not None else get_settings().brapi_token
+    tok = token if token is not None else get_settings().brapi_token.get_secret_value()
     stocks: list[dict[str, Any]] = []
     page = 1
     while len(stocks) < target:

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+import shutil
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -206,7 +208,13 @@ def promote_to_silver(paths: list[Path]) -> list[dict[str, str]]:
                 grid=ident.grid,
             )
             ensure_dir(store.parent)
-            ds.to_zarr(store, mode="w", consolidated=False)
+            tmp_store = store.with_name(store.name + ".tmp")
+            if tmp_store.exists():
+                shutil.rmtree(tmp_store)
+            ds.to_zarr(tmp_store, mode="w", consolidated=False)
+            if store.exists():
+                shutil.rmtree(store)
+            os.replace(tmp_store, store)
             logger.info("promote ok: %d arquivos -> %s", len(group_paths), store)
         finally:
             ds.close()
@@ -259,6 +267,7 @@ def materialize_indicators(promoted: list[dict[str, str]]) -> int:
         assets = session.scalars(sa.select(DimAsset).order_by(DimAsset.asset_sk)).all()
         valid_date_sks = set(session.scalars(sa.select(DimDate.date_sk)).all())
 
+        resolved: list[tuple[dict[str, str], int, int]] = []
         for meta in promoted:
             scenario_name = _EXPERIMENT_TO_SCENARIO.get(meta["experiment"])
             scenario_sk = session.scalar(
@@ -276,7 +285,17 @@ def materialize_indicators(promoted: list[dict[str, str]]) -> int:
                     meta["variable"],
                 )
                 continue
+            resolved.append((meta, scenario_sk, var_sk))
 
+        for scenario_sk, var_sk in {(s, v) for _, s, v in resolved}:
+            session.execute(
+                sa.delete(FactClimateIndicator).where(
+                    FactClimateIndicator.scenario_sk == scenario_sk,
+                    FactClimateIndicator.var_sk == var_sk,
+                )
+            )
+
+        for meta, scenario_sk, var_sk in resolved:
             ds = xr.open_zarr(meta["store"], consolidated=False)
             try:
                 da = ds[main_data_var(ds, expected=meta["variable"])]

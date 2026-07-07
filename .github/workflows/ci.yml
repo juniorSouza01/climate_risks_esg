@@ -7,13 +7,43 @@ on:
     branches: [main]
 
 jobs:
-  quality:
-    name: Lint + Types + Tests
+  unit:
+    name: Lint + Types + Unit
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python 3.11
+        run: uv python install 3.11
+
+      - name: Install dependencies
+        run: uv sync --extra dev
+
+      - name: Ruff (lint)
+        run: uv run ruff check src tests pipelines
+
+      - name: Ruff (format check)
+        run: uv run ruff format --check src tests pipelines
+
+      - name: Mypy (strict)
+        run: uv run mypy
+
+      - name: Pytest (unit + cobertura)
+        run: uv run pytest tests/unit --cov --cov-report=term-missing --cov-fail-under=37
+
+  integration:
+    name: Integration (Postgres 16)
     runs-on: ubuntu-latest
 
     services:
       postgres:
-        # Imagem com PostGIS já incluído (colunas Geometry do star schema).
+        # Postgres 16 com PostGIS já incluído (colunas Geometry do star schema).
         image: postgis/postgis:16-3.4
         env:
           POSTGRES_USER: climate_esg
@@ -49,15 +79,6 @@ jobs:
       - name: Install dependencies
         run: uv sync --extra dev
 
-      - name: Ruff (lint)
-        run: uv run ruff check src tests pipelines
-
-      - name: Ruff (format check)
-        run: uv run ruff format --check src tests pipelines
-
-      - name: Mypy (strict)
-        run: uv run mypy
-
       - name: Enable PostGIS extension
         run: uv run python -c "import sqlalchemy as sa; from climate_esg.config import get_settings; e=sa.create_engine(get_settings().sqlalchemy_url); c=e.connect(); c.execute(sa.text('CREATE EXTENSION IF NOT EXISTS postgis')); c.commit()"
 
@@ -67,5 +88,5 @@ jobs:
       - name: Seed dimensões-base
         run: uv run climate-esg db seed
 
-      - name: Pytest (rápido)
-        run: uv run pytest -m "not slow and not integration and not needs_data" --cov --cov-report=term-missing
+      - name: Pytest (integration)
+        run: uv run pytest -m integration

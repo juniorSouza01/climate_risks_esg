@@ -4,7 +4,7 @@ import unicodedata
 from functools import lru_cache
 from typing import Any
 
-from climate_esg.ingestion.http import get_client
+from climate_esg.ingestion.http import request_json
 
 MUNICIPIOS_URL = "https://servicodados.ibge.gov.br/api/v1/localidades/municipios"
 
@@ -27,10 +27,9 @@ def _uf_sigla(municipio: dict[str, Any]) -> str | None:
 
 @lru_cache(maxsize=1)
 def _municipality_index() -> dict[tuple[str, str], str]:
-    resp = get_client().get(MUNICIPIOS_URL, timeout=90.0)
-    resp.raise_for_status()
+    payload = request_json("ibge", MUNICIPIOS_URL)
     index: dict[tuple[str, str], str] = {}
-    for m in resp.json():
+    for m in payload or []:
         uf = _uf_sigla(m)
         nome = m.get("nome")
         if uf and nome:

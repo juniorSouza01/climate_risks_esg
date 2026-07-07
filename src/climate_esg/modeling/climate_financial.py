@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from climate_esg.modeling.physical_config import severity_label
+
 # Perfis de sensibilidade por setor (divisão CNAE, 2 primeiros dígitos).
 # Cada canal (0..1) = fração MÁXIMA daquela linha exposta a risco físico pleno.
 # Metodologia calibrável (estilo TCFD/NGFS) — NÃO é dado de empresa. Selo INFERIDO.
@@ -93,8 +95,10 @@ def climate_financial_impact(
     total_assets: float | None = None,
     company_name: str = "empresa",
 ) -> dict[str, Any]:
-    if climate_index is None or not revenue or revenue <= 0:
-        return {}
+    if climate_index is None:
+        return {"status": "no_input", "reason": "sem índice climático da sede"}
+    if not revenue or revenue <= 0:
+        return {"status": "no_input", "reason": "sem receita positiva"}
 
     prof = sector_profile(cnae_code)
     exposure = max(0.0, min(1.0, climate_index / 100.0))
@@ -158,11 +162,13 @@ def climate_financial_impact(
         materialidade = max(0.0, min(1.0, receita_risk / revenue))
 
     risco_ajustado = min(100.0, climate_index * (1.0 + materialidade))
-    label = "baixo" if risco_ajustado < 33 else "médio" if risco_ajustado < 66 else "alto"
+    label = severity_label(risco_ajustado)
 
     narrative = _narrative(company_name, prof, climate_index, materialidade, risco_ajustado, channels)
 
     return {
+        "status": "ok",
+        "reason": None,
         "sector": {
             "cnae": str(cnae_code) if cnae_code is not None else None,
             "division": prof.get("division"),

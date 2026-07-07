@@ -1,12 +1,30 @@
 from __future__ import annotations
 
+import threading
+import time
 from dataclasses import dataclass
 from typing import Any
 
-from climate_esg.ingestion.http import get_client
+import httpx
+
+from climate_esg.ingestion.http import request_json
 
 NOMINATIM_URL = "https://nominatim.openstreetmap.org/search"
 BRASILAPI_CNPJ_URL = "https://brasilapi.com.br/api/cnpj/v1/{cnpj}"
+
+NOMINATIM_MIN_INTERVAL_S = 1.0
+
+_nominatim_lock = threading.Lock()
+_nominatim_last_call = 0.0
+
+
+def _throttle_nominatim() -> None:
+    global _nominatim_last_call
+    with _nominatim_lock:
+        wait_s = _nominatim_last_call + NOMINATIM_MIN_INTERVAL_S - time.monotonic()
+        if wait_s > 0:
+            time.sleep(wait_s)
+        _nominatim_last_call = time.monotonic()
 
 
 @dataclass(frozen=True, slots=True)
@@ -69,23 +87,32 @@ def parse_brasilapi_cnpj(payload: dict[str, Any]) -> CompanyAddress:
     )
 
 
-def geocode(query: str, *, timeout: float = 30.0) -> GeocodeResult | None:
-    resp = get_client().get(
-        NOMINATIM_URL, params={"q": query, "format": "json", "limit": 1}, timeout=timeout
+def geocode(query: str, *, timeout: float | None = None) -> GeocodeResult | None:
+    _throttle_nominatim()
+    payload = request_json(
+        "nominatim",
+        NOMINATIM_URL,
+        params={"q": query, "format": "json", "limit": 1, "countrycodes": "br"},
+        timeout=timeout,
     )
-    resp.raise_for_status()
-    return parse_nominatim(resp.json())
+    return parse_nominatim(payload or [])
 
 
-def cnpj_to_address(cnpj: str, *, timeout: float = 30.0) -> CompanyAddress | None:
-    resp = get_client().get(BRASILAPI_CNPJ_URL.format(cnpj=only_digits(cnpj)), timeout=timeout)
-    if resp.status_code == 404:
+def cnpj_to_address(cnpj: str, *, timeout: float | None = None) -> CompanyAddress | None:
+    try:
+        payload = request_json(
+            "brasilapi", BRASILAPI_CNPJ_URL.format(cnpj=only_digits(cnpj)), timeout=timeout
+        )
+    except httpx.HTTPStatusError as exc:
+        if exc.response.status_code == 404:
+            return None
+        raise
+    if payload is None:
         return None
-    resp.raise_for_status()
-    return parse_brasilapi_cnpj(resp.json())
+    return parse_brasilapi_cnpj(payload)
 
 
-def geocode_cnpj(cnpj: str, *, timeout: float = 30.0) -> GeocodeResult | None:
+def geocode_cnpj(cnpj: str, *, timeout: float | None = None) -> GeocodeResult | None:
     address = cnpj_to_address(cnpj, timeout=timeout)
     if address is None:
         return None

@@ -25,14 +25,24 @@ SCORE_SCHEMA = pa.DataFrameSchema(
 )
 
 
-def validate_indicator_rows(rows: list[tuple[int, float]]) -> None:
+def validate_indicator_rows(rows: list[tuple[int, float]], *, min_rows: int = 1) -> None:
+    if len(rows) < min_rows:
+        raise ValueError(
+            f"validate_indicator_rows: {len(rows)} linhas < min_rows={min_rows} — "
+            "validação vazia bloqueada"
+        )
     if not rows:
         return
     df = pd.DataFrame(rows, columns=["date_sk", "value_mean"])
     INDICATOR_SCHEMA.validate(df, lazy=True)
 
 
-def validate_score_rows(rows: list[dict[str, float]]) -> None:
+def validate_score_rows(rows: list[dict[str, float]], *, min_rows: int = 1) -> None:
+    if len(rows) < min_rows:
+        raise ValueError(
+            f"validate_score_rows: {len(rows)} linhas < min_rows={min_rows} — "
+            "validação vazia bloqueada"
+        )
     if not rows:
         return
     SCORE_SCHEMA.validate(pd.DataFrame(rows), lazy=True)

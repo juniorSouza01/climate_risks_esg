@@ -60,7 +60,7 @@ prefect-worker: ## Worker padrão na work pool 'default'
 	$(UV) run prefect worker start --pool default --type process
 
 # ---- Qualidade -----------------------------------------------------------
-.PHONY: lint format typecheck test test-cov check
+.PHONY: lint format typecheck test test-unit test-integration test-cov check
 lint: ## ruff check
 	$(UV) run ruff check src tests pipelines
 
@@ -72,6 +72,12 @@ typecheck: ## mypy strict em src/climate_esg
 
 test: ## pytest rápido (exclui slow/integration/needs_data)
 	$(UV) run pytest -m "not slow and not integration and not needs_data"
+
+test-unit: ## pytest unit com cobertura mínima (espelha o job unit do CI)
+	$(UV) run pytest tests/unit --cov --cov-report=term-missing --cov-fail-under=37
+
+test-integration: ## pytest -m integration (requer Postgres migrado; espelha o job integration do CI)
+	$(UV) run pytest -m integration
 
 test-cov: ## pytest com cobertura
 	$(UV) run pytest --cov --cov-report=term-missing --cov-report=html

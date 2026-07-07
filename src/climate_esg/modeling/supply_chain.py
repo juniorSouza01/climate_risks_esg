@@ -55,18 +55,20 @@ def supply_chain_climate_risk(
     ebitda: float | None,
     company_name: str = "empresa",
 ) -> dict[str, Any]:
-    if not value_chain or not revenue or revenue <= 0:
-        return {}
+    if not value_chain:
+        return {"status": "no_input", "reason": "sem cadeia de valor inferida"}
+    if not revenue or revenue <= 0:
+        return {"status": "no_input", "reason": "sem receita positiva"}
     upstream = value_chain.get("upstream") or []
     if not upstream:
-        return {}
+        return {"status": "no_input", "reason": "sem fornecedores a montante"}
 
     try:
         means = national_hazard_means()
-    except Exception:
-        means = {}
+    except Exception as exc:
+        return {"status": "error", "reason": f"AdaptaBrasil indisponível: {exc}"}
     if not means:
-        return {}
+        return {"status": "no_input", "reason": "sem médias nacionais AdaptaBrasil"}
 
     max_fragility = 0.17  # agropecuária ≈ teto da escala de fragilidade
     suppliers: list[dict[str, Any]] = []
@@ -103,6 +105,8 @@ def supply_chain_climate_risk(
     )
 
     return {
+        "status": "ok",
+        "reason": None,
         "suppliers": suppliers,
         "chain_risk_index": round(chain_index, 1),
         "dependence_raw_material": dependence,

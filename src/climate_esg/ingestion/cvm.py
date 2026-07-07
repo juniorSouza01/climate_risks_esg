@@ -47,9 +47,9 @@ def _scale(escala: Any) -> float:
 
 def _balance_by_cnpj(zf: zipfile.ZipFile) -> dict[str, dict[str, float | None]]:
     out: dict[str, dict[str, float | None]] = {}
-    for kind, member_key, accounts in (
-        ("bpa", "BPA_con", {"total_assets": ("1",)}),
-        ("bpp", "BPP_con", {"equity": ("2.03",), "gross_debt": ("2.01.04", "2.02.01")}),
+    for member_key, accounts in (
+        ("BPA_con", {"total_assets": ("1",)}),
+        ("BPP_con", {"equity": ("2.03",), "gross_debt": ("2.01.04", "2.02.01")}),
     ):
         member = next((n for n in zf.namelist() if member_key in n), None)
         if member is None:
@@ -91,8 +91,14 @@ def _da_by_cnpj(zf: zipfile.ZipFile) -> dict[str, float]:
     for cnpj_raw, grp in df.groupby("CNPJ_CIA"):
         latest = grp["DT_REFER"].max()
         g = grp[grp["DT_REFER"] == latest]
+        kept: set[str] = set()
+        for code in sorted({str(c) for c in g["CD_CONTA"]}):
+            if not any(code.startswith(f"{parent}.") for parent in kept):
+                kept.add(code)
         total = 0.0
         for _, row in g.iterrows():
+            if str(row["CD_CONTA"]) not in kept:
+                continue
             v = _to_float(row["VL_CONTA"])
             if v is not None:
                 total += abs(v) * _scale(row.get("ESCALA_MOEDA"))

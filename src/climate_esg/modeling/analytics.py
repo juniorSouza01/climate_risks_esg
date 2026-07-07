@@ -12,8 +12,14 @@ from sklearn.preprocessing import StandardScaler
 from sqlalchemy.orm import Session
 
 from climate_esg.db.models import CvmFinancials
+from climate_esg.ingestion.geocoding import only_digits
+from climate_esg.modeling.physical_config import (
+    ADAPTABRASIL_HAZARD_WEIGHTS,
+    DEFAULT_HAZARD_WEIGHT,
+    severity_label,
+)
 
-HAZARD_WEIGHTS = {"enchente": 0.40, "deslizamento": 0.25, "seca": 0.35}
+MIN_SAMPLE = 10
 # Sensibilidade da receita à ameaça climática — heurística DECLARADA (placeholder F1),
 # não medição calibrada. Faixa low/central/high da fração de receita exposta por unidade.
 _SENSITIVITY = (0.03, 0.08, 0.15)
@@ -69,12 +75,11 @@ def _climate_index(climate_risk: dict[str, Any] | None) -> float | None:
     num = 0.0
     den = 0.0
     for hazard, r in climate_risk.items():
-        w = HAZARD_WEIGHTS.get(hazard, 0.1)
+        w = ADAPTABRASIL_HAZARD_WEIGHTS.get(hazard, DEFAULT_HAZARD_WEIGHT)
         val = r.get("value") if isinstance(r, dict) else None
         if val is None:
             continue
-        v = float(val)
-        v = v * 100.0 if v <= 1.0 else v
+        v = float(val) * 100.0
         num += w * v
         den += w
     if den == 0:
@@ -134,11 +139,15 @@ def analyze_company(
     revenue: float | None = None,
 ) -> dict[str, Any]:
     universe = _load_universe(session)
-    if len(universe) < 10:
-        return {}
+    if len(universe) < MIN_SAMPLE:
+        return {
+            "status": "insufficient_universe",
+            "reason": f"universo CVM com {len(universe)} empresas (mínimo {MIN_SAMPLE})",
+        }
 
-    cnpjs = [d["cnpj"] for d in universe]
-    target_idx = cnpjs.index(cnpj) if (cnpj and cnpj in cnpjs) else None
+    cnpjs = [only_digits(str(d["cnpj"] or "")) for d in universe]
+    target_key = only_digits(str(cnpj)) if cnpj else None
+    target_idx = cnpjs.index(target_key) if (target_key and target_key in cnpjs) else None
     target = universe[target_idx] if target_idx is not None else None
     rev = target["revenue"] if target else revenue
 
@@ -146,8 +155,7 @@ def analyze_company(
 
     ci = _climate_index(climate_risk)
     if ci is not None:
-        label = "baixo" if ci < 33 else "médio" if ci < 66 else "alto"
-        cross["climate_index"] = {"value": ci, "label": label, "basis": "sede municipal"}
+        cross["climate_index"] = {"value": ci, "label": severity_label(ci), "basis": "sede municipal"}
         if rev:
             frac = ci / 100.0
             cross["revenue_at_risk"] = {
@@ -234,4 +242,4 @@ def analyze_company(
             "seal": "previsto",
         }
 
-    return {"cross": cross, "predictions": predictions}
+    return {"status": "ok", "reason": None, "cross": cross, "predictions": predictions}
