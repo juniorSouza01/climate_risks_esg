@@ -37,7 +37,11 @@ def _brapi_search(query: str, tok: str | None, timeout: float | None) -> list[di
     try:
         payload = request_json("brapi", BRAPI_LIST_URL, params=params, timeout=timeout)
     except httpx.HTTPStatusError as exc:
-        if exc.response.status_code in (401, 402, 404):
+        status = exc.response.status_code
+        if status in (401, 402):
+            log.error("brapi.auth_failed", query=query, status_code=status)
+            raise BrapiAuthError(f"brapi: token ausente/expirado (HTTP {status})") from exc
+        if status == 404:
             return []
         raise
     return [s for s in ((payload or {}).get("stocks") or []) if s.get("stock")]

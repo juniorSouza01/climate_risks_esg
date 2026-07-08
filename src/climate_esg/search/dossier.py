@@ -20,7 +20,7 @@ from climate_esg.ingestion.geocoding import (
     geocode,
     only_digits,
 )
-from climate_esg.ingestion.http import get_client
+from climate_esg.ingestion.http import request_json
 from climate_esg.ingestion.ibge import resolve_ibge_code
 from climate_esg.ingestion.market_data import (
     BrapiAuthError,
@@ -126,12 +126,17 @@ def classify_query(query: str) -> str:
     return "name"
 
 
-def _registry(cnpj: str, *, timeout: float = 20.0) -> dict[str, Any] | None:
-    resp = get_client().get(BRASILAPI_CNPJ_URL.format(cnpj=only_digits(cnpj)), timeout=timeout)
-    if resp.status_code == 404:
+def _registry(cnpj: str, *, timeout: float | None = None) -> dict[str, Any] | None:
+    try:
+        p = request_json(
+            "brasilapi", BRASILAPI_CNPJ_URL.format(cnpj=only_digits(cnpj)), timeout=timeout
+        )
+    except httpx.HTTPStatusError as exc:
+        if exc.response.status_code == 404:
+            return None
+        raise
+    if not p:
         return None
-    resp.raise_for_status()
-    p = resp.json()
     return {
         "cnpj": only_digits(str(p.get("cnpj") or cnpj)),
         "razao_social": p.get("razao_social"),
@@ -439,10 +444,10 @@ def _attach_climate_risk(dossier: Dossier) -> None:
 
 def normalize_key(query: str) -> str:
     s = query.strip()
-    digits = only_digits(s)
-    if len(digits) == 14 and valid_cnpj(digits):
-        return f"{_CACHE_KEY_VERSION}:cnpj:{digits}"
-    if _TICKER_RE.match(s.upper()):
+    kind = classify_query(s)
+    if kind == "cnpj":
+        return f"{_CACHE_KEY_VERSION}:cnpj:{only_digits(s)}"
+    if kind == "ticker":
         return f"{_CACHE_KEY_VERSION}:ticker:{s.upper()}"
     return f"{_CACHE_KEY_VERSION}:name:" + re.sub(r"\s+", "-", s.lower())
 

@@ -192,27 +192,27 @@ def _seed_companies(session: Session) -> None:
 
 
 def _seed_assets(session: Session) -> None:
+    scalar_keys = [k for k in ASSETS[0] if k != "asset_sk"]
     for row in ASSETS:
         data = dict(row)
         lat, lon = data["latitude"], data["longitude"]
         existing = session.execute(
-            sa.select(DimAsset.latitude, DimAsset.longitude, DimAsset.geom.is_(None)).where(
-                DimAsset.asset_sk == data["asset_sk"]
-            )
+            sa.select(
+                *[getattr(DimAsset, k) for k in scalar_keys],
+                DimAsset.geom.is_(None).label("geom_is_null"),
+            ).where(DimAsset.asset_sk == data["asset_sk"])
         ).one_or_none()
         if existing is None:
             data["geom"] = WKTElement(f"POINT({lon} {lat})", srid=4326)
             session.add(DimAsset(**data))
             continue
-        cur_lat, cur_lon, geom_is_null = existing
         values: dict[str, object] = {}
-        if cur_lat is None:
-            values["latitude"] = lat
-        if cur_lon is None:
-            values["longitude"] = lon
-        if geom_is_null:
-            eff_lat = cur_lat if cur_lat is not None else lat
-            eff_lon = cur_lon if cur_lon is not None else lon
+        for key in scalar_keys:
+            if data[key] is not None and getattr(existing, key) is None:
+                values[key] = data[key]
+        if existing.geom_is_null:
+            eff_lat = existing.latitude if existing.latitude is not None else lat
+            eff_lon = existing.longitude if existing.longitude is not None else lon
             values["geom"] = WKTElement(f"POINT({eff_lon} {eff_lat})", srid=4326)
         if values:
             session.execute(

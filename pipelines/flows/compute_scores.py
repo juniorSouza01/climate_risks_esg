@@ -12,6 +12,7 @@ from climate_esg.db.models import (
     DimAsset,
     DimClimateVariable,
     DimCompany,
+    DimModelRun,
     DimScenario,
     FactClimateIndicator,
     FactFinancialImpact,
@@ -182,6 +183,7 @@ def score_physical(scenario_name: str, horizon_year: int) -> int:
             raise
 
         if scored < settings.min_companies_scored:
+            session.rollback()
             finish_model_run(session, run_sk, "empty")
             session.commit()
             raise RuntimeError(
@@ -261,6 +263,7 @@ def score_transition(scenario_name: str, horizon_year: int) -> int:
             raise
 
         if scored < settings.min_companies_scored:
+            session.rollback()
             finish_model_run(session, run_sk, "empty")
             session.commit()
             raise RuntimeError(
@@ -282,7 +285,12 @@ def _latest_bands(
 ) -> dict[int, ScoreBand]:
     latest = (
         sa.select(table.company_sk, sa.func.max(table.run_sk).label("run_sk"))
-        .where(table.scenario_sk == scenario_sk, table.horizon_year == horizon_year)
+        .join(DimModelRun, DimModelRun.run_sk == table.run_sk)
+        .where(
+            table.scenario_sk == scenario_sk,
+            table.horizon_year == horizon_year,
+            DimModelRun.status == "success",
+        )
         .group_by(table.company_sk)
         .subquery()
     )
@@ -357,7 +365,12 @@ def _latest_physical_coverage(
     f = FactPhysicalRiskScore
     latest = (
         sa.select(f.company_sk, sa.func.max(f.run_sk).label("run_sk"))
-        .where(f.scenario_sk == scenario_sk, f.horizon_year == horizon_year)
+        .join(DimModelRun, DimModelRun.run_sk == f.run_sk)
+        .where(
+            f.scenario_sk == scenario_sk,
+            f.horizon_year == horizon_year,
+            DimModelRun.status == "success",
+        )
         .group_by(f.company_sk)
         .subquery()
     )
@@ -376,7 +389,12 @@ def _latest_transition_subs(
     f = FactTransitionRiskScore
     latest = (
         sa.select(f.company_sk, sa.func.max(f.run_sk).label("run_sk"))
-        .where(f.scenario_sk == scenario_sk, f.horizon_year == horizon_year)
+        .join(DimModelRun, DimModelRun.run_sk == f.run_sk)
+        .where(
+            f.scenario_sk == scenario_sk,
+            f.horizon_year == horizon_year,
+            DimModelRun.status == "success",
+        )
         .group_by(f.company_sk)
         .subquery()
     )

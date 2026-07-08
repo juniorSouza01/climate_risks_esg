@@ -71,6 +71,13 @@ def test_normalize_key_nome_colapsa_espacos() -> None:
     assert normalize_key("Schulz do Brasil").endswith(":name:schulz-do-brasil")
 
 
+def test_normalize_key_nome_com_cnpj_embutido_nao_colide_com_cnpj() -> None:
+    name_query = f"Empresa {VALID_CNPJ} Ltda"
+    assert classify_query(name_query) == "name"
+    assert ":cnpj:" not in normalize_key(name_query)
+    assert normalize_key(name_query) != normalize_key(VALID_CNPJ)
+
+
 class _Clock:
     current = dt.datetime(2026, 1, 1, 12, 0, 0)
 

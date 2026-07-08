@@ -18,7 +18,11 @@ from climate_esg.db.models import (
     FactClimateIndicator,
 )
 from climate_esg.geospatial.regions import SANTA_CATARINA, BBox, bbox_from_points
-from climate_esg.governance.lineage import hash_data_version, start_model_run
+from climate_esg.governance.lineage import (
+    finish_model_run,
+    hash_data_version,
+    start_model_run,
+)
 from climate_esg.ingestion.cf_validation import (
     check_nan_fraction,
     check_time_monotonic,
@@ -314,6 +318,8 @@ def materialize_indicators(promoted: list[dict[str, str]]) -> int:
                     series = nearest_point_monthly(
                         da, float(asset.latitude), float(asset.longitude)
                     )
+                    if not series:
+                        continue
                     validate_indicator_rows(series)
                     for date_sk, value in series:
                         if date_sk not in valid_date_sks:
@@ -332,6 +338,8 @@ def materialize_indicators(promoted: list[dict[str, str]]) -> int:
                         rows_written += 1
             finally:
                 ds.close()
+
+        finish_model_run(session, run_sk, "success" if rows_written else "empty")
 
     if dropped_out_of_calendar:
         logger.warning(

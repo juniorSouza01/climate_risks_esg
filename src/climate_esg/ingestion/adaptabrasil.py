@@ -6,7 +6,7 @@ import sqlalchemy as sa
 from sqlalchemy.orm import Session
 
 from climate_esg.db.models import DimAsset, DimScenario, FactHazardExposure
-from climate_esg.governance.lineage import start_model_run
+from climate_esg.governance.lineage import finish_model_run, start_model_run
 from climate_esg.ingestion.http import request_json
 from climate_esg.quality.boundaries import validate_adaptabrasil_rows
 
@@ -112,35 +112,43 @@ def ingest_adaptabrasil_exposure(session: Session) -> int:
         },
     )
 
-    written = 0
-    for indicator, hazard in INDICATOR_HAZARD.items():
-        for adapta_scenario, scenario_name in INDICATOR_SCENARIOS.get(indicator, {}).items():
-            sk = scenario_sk.get(scenario_name)
-            if sk is None:
-                continue
-            for year in HORIZONS:
-                values = fetch_indicator(indicator, year, adapta_scenario)
-                targets = [(asset_sk, values[ibge]) for asset_sk, ibge in assets if ibge in values]
-                if not targets:
+    try:
+        written = 0
+        for indicator, hazard in INDICATOR_HAZARD.items():
+            for adapta_scenario, scenario_name in INDICATOR_SCENARIOS.get(indicator, {}).items():
+                sk = scenario_sk.get(scenario_name)
+                if sk is None:
                     continue
-                session.execute(
-                    sa.delete(FactHazardExposure).where(
-                        FactHazardExposure.hazard_type == hazard,
-                        FactHazardExposure.scenario_sk == sk,
-                        FactHazardExposure.horizon_year == year,
-                        FactHazardExposure.asset_sk.in_([a for a, _ in targets]),
-                    )
-                )
-                for asset_sk, value in targets:
-                    session.add(
-                        FactHazardExposure(
-                            asset_sk=asset_sk,
-                            hazard_type=hazard,
-                            scenario_sk=sk,
-                            horizon_year=year,
-                            run_sk=run_sk,
-                            exposure_normalized=round(value, 4),
+                for year in HORIZONS:
+                    values = fetch_indicator(indicator, year, adapta_scenario)
+                    targets = [
+                        (asset_sk, values[ibge]) for asset_sk, ibge in assets if ibge in values
+                    ]
+                    if not targets:
+                        continue
+                    session.execute(
+                        sa.delete(FactHazardExposure).where(
+                            FactHazardExposure.hazard_type == hazard,
+                            FactHazardExposure.scenario_sk == sk,
+                            FactHazardExposure.horizon_year == year,
+                            FactHazardExposure.asset_sk.in_([a for a, _ in targets]),
                         )
                     )
-                    written += 1
+                    for asset_sk, value in targets:
+                        session.add(
+                            FactHazardExposure(
+                                asset_sk=asset_sk,
+                                hazard_type=hazard,
+                                scenario_sk=sk,
+                                horizon_year=year,
+                                run_sk=run_sk,
+                                exposure_normalized=round(value, 4),
+                            )
+                        )
+                        written += 1
+    except Exception:
+        finish_model_run(session, run_sk, "failed")
+        raise
+
+    finish_model_run(session, run_sk, "success" if written else "empty")
     return written
