@@ -21,14 +21,16 @@ USER_AGENT = "climate-esg-platform/0.1 (+ingestion)"
 DEFAULT_TIMEOUTS: dict[str, float] = {
     "adaptabrasil": 90.0,
     "ibge": 90.0,
-    "brapi": 20.0,
-    "gdelt": 20.0,
+    "brapi": 8.0,
+    "gdelt": 8.0,
     "nominatim": 30.0,
     "brasilapi": 30.0,
     "compras_gov": 20.0,
 }
 FALLBACK_TIMEOUT = 30.0
 MAX_RETRY_AFTER_S = 60.0
+DEFAULT_MAX_ATTEMPTS = 3
+SOURCE_MAX_ATTEMPTS: dict[str, int] = {"brapi": 2, "gdelt": 1}
 
 _client: httpx.Client | None = None
 _client_lock = threading.Lock()
@@ -149,7 +151,7 @@ def request_json(
     )
     retryer = Retrying(
         reraise=True,
-        stop=stop_after_attempt(3),
+        stop=stop_after_attempt(SOURCE_MAX_ATTEMPTS.get(source, DEFAULT_MAX_ATTEMPTS)),
         wait=wait_exponential_jitter(initial=1.0, max=30.0),
         retry=retry_if_exception_type((httpx.TransportError, TransientHTTPError)),
     )

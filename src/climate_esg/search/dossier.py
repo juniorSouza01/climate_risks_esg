@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import datetime as dt
 import re
+from concurrent.futures import ThreadPoolExecutor, wait
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
@@ -224,10 +225,15 @@ def build_dossier(query: str, *, max_news: int = 25) -> Dossier:
         except Exception as exc:
             _record_error(dossier, "brapi", exc)
 
-    _attach_news(dossier, max_news=max_news)
-    _attach_climate_risk(dossier)
-    _attach_market_live(dossier)
-    _attach_location(dossier)
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        wait(
+            [
+                pool.submit(_attach_news, dossier, max_news=max_news),
+                pool.submit(_attach_climate_risk, dossier),
+                pool.submit(_attach_market_live, dossier),
+                pool.submit(_attach_location, dossier),
+            ]
+        )
 
     if dossier.name is None:
         dossier.name = query

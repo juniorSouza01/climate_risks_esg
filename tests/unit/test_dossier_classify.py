@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import time
 import types
 
 import pytest
@@ -76,6 +77,21 @@ def test_normalize_key_nome_com_cnpj_embutido_nao_colide_com_cnpj() -> None:
     assert classify_query(name_query) == "name"
     assert ":cnpj:" not in normalize_key(name_query)
     assert normalize_key(name_query) != normalize_key(VALID_CNPJ)
+
+
+def test_build_dossier_secoes_rodam_em_paralelo(monkeypatch: pytest.MonkeyPatch) -> None:
+    def _slow(*_args: object, **_kwargs: object) -> None:
+        time.sleep(0.3)
+
+    for fn in ("_attach_news", "_attach_climate_risk", "_attach_market_live", "_attach_location"):
+        monkeypatch.setattr(dossier_mod, fn, _slow)
+
+    start = time.monotonic()
+    dossier = dossier_mod.build_dossier("Empresa Teste Ltda")
+    elapsed = time.monotonic() - start
+
+    assert dossier.kind == "name"
+    assert elapsed < 0.9  # serial seria ~1.2s; paralelo ~0.3s
 
 
 class _Clock:
